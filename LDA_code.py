@@ -232,9 +232,6 @@ Probabilities[Probabilities < 0.1] = 0
 Probs = pd.DataFrame(Probabilities, index=SSN, columns=x_labels)
 Probs.to_excel('Probabilities.xlsx')
 
-Labs = pd.DataFrame(Labels, index=SSN)
-Labs.to_excel('Labels.xlsx')
-
 # ================================= Plot ================================= #
 
 counts = np.cumsum(Labels.value_counts(sort=False))
@@ -243,6 +240,7 @@ x_ticks = list(range(0, 20))
 y_numbs = list(range(0, len(test_set)))
 color_list = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C9', 'C7', 'C8']
 
+'''
 fig, ax = plt.subplots()
 k = 0
 
@@ -267,8 +265,33 @@ plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
 plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
 ax.set_aspect(0.2)
 plt.show()
+'''
 
-# plot_data = pd.DataFrame();
-# for i in y_numbs:
-#    for j in x_ticks:
-#        if Probabilities[i, j] != 0:
+plot_data = pd.DataFrame(columns=['label', 'residue', 'probability'])
+xx = []
+yy = []
+pp = []
+for i in y_numbs:
+    for j in x_ticks:
+        if Probabilities[i, j] != 0:
+            xx.append(x_ticks[j])
+            yy.append(y_numbs[i])
+            pp.append(Probabilities[i, j])
+
+plot_data['label'] = xx
+plot_data['residue'] = yy
+plot_data['probability'] = pp
+
+height = len(yy)/30
+
+h = sns.relplot(x="label", y="residue", hue="label", size="probability", sizes=(40, 300), alpha=.5, palette="muted",
+                height=height, data=plot_data)
+
+h.despine(top=False, right=False)
+h.set(aspect=0.5)
+plt.xlabel("LDA classification", size=20)
+plt.ylabel("Spin system", size=20)
+plt.yticks(y_numbs, SSN, fontsize=8)
+plt.xticks(x_ticks, x_labels, fontsize=10, rotation=45)
+plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
+plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
