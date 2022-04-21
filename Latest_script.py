@@ -21,7 +21,7 @@ for k, l in enumerate(scanlist):
         try:
             ent = pynmrstar.Entry.from_database(l)
             waiter = False
-        except:
+        except IOError:
             print('connection error on: ' + str(l))
             time.sleep(10)
             waiter = True
@@ -231,7 +231,7 @@ x_ticks = list(range(0, 20))
 y_numbs = list(range(0, len(test_set)))
 color_list = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C9', 'C7', 'C8']
 
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(8,8))
 k = 0
 
 for i in y_numbs:
@@ -253,3 +253,6 @@ plt.xticks(x_ticks, x_labels, fontsize=14, rotation=45)
 plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
 plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
 ax.set_aspect(0.2)
+plt.savefig('Probabilities.pdf')
+plt.show()
+
