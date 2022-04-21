@@ -10,8 +10,7 @@ import seaborn as sns
 # ================ LDA method for residue mapping in IDPs ================ #
 
 # Load test data
-#test_data = pd.read_excel(sys.argv[1])
-test_data = pd.read_excel('test1.xlsx')
+test_data = pd.read_excel(sys.argv[1])
 
 # ---------- Automatic retrieval of data from the BMRB database ---------- #
 
