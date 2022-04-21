@@ -78,7 +78,7 @@ TableA['ID'] = TableB['ID']
 # ============================ Pre-processing ============================ #
 
 # Load test data
-test_data = pd.read_excel('aSYN2.xlsx', names=['SSN', 'HA', 'HB', 'CA', 'CB', 'H', 'N', 'C', 'amino'], header=None)
+test_data = pd.read_excel('aSYN.xlsx', names=['SSN', 'HA', 'HB', 'CA', 'CB', 'H', 'N', 'C', 'amino'], header=None)
 SSN = test_data.iloc[:len(test_data), 0]    # Spin Systems Numbering
 test_data = test_data.drop(['SSN'], axis=1)
 
