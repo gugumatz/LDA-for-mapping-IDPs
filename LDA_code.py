@@ -266,7 +266,7 @@ plt.xticks(x_ticks, x_labels, fontsize=14, rotation=45)
 plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
 plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
 ax.set_aspect(0.2)
-
+plt.show()
 
 # plot_data = pd.DataFrame();
 # for i in y_numbs:
