@@ -11,6 +11,7 @@ import seaborn as sns
 
 # Load test data
 test_data = pd.read_excel(sys.argv[1])
+fasta = open(sys.argv[2], 'r').read().rstrip('\n')
 
 # ---------- Automatic retrieval of data from the BMRB database ---------- #
 
@@ -82,6 +83,20 @@ TableA['ID'] = TableB['ID']
 
 # ============================ Pre-processing ============================ #
 
+AAT_dict = {'A': 'ALA', 'R': 'ARG', 'N': 'ASN', 'D': 'ASP', 'C': 'CYS', 'Q': 'GLN', 'E': 'GLU', 'G': 'GLY', 'H': 'HIS',
+            'I': 'ILE', 'L': 'LEU', 'K': 'LYS', 'M': 'MET', 'F': 'PHE', 'P': 'PRO', 'O': 'PYL', 'S': 'SER', 'U': 'SEC',
+            'T': 'THR', 'W': 'TRP', 'Y': 'TYR', 'V': 'VAL'}
+
+# Get Amino Acid Types in test protein
+fasta = set(fasta)
+AATs_fasta = [0] * len(fasta)
+for i, k in enumerate(fasta):
+    AATs_fasta[i] = AAT_dict[k]
+AATs_fasta.sort()
+
+# AATs not in test protein
+AATs_missing = list(set(AAT_dict.values())-set(AATs_fasta))
+
 # Test data
 SSN = test_data.iloc[:len(test_data), 0]    # Spin Systems Numbers
 test_data = test_data.drop(['SSN'], axis=1)
@@ -106,7 +121,6 @@ train_classes = train_data.iloc[:len(TableA), len(train_data.columns)-1]
 test_set = train_data.iloc[len(TableA):, :len(train_data.columns)-1]
 test_classes = train_data.iloc[len(TableA):, len(train_data.columns)-1]
 test_set = test_set.to_numpy()
-x_labels = np.unique(train_classes)
 
 # Separate Glycine and Proline residues in the training set
 idxs_gly = (train_classes == 'GLY')
@@ -120,6 +134,12 @@ data_pro = train_set.loc[idxs_pro, list(set(header)-{'H', 'N'})]
 pro_classes = train_classes.loc[idxs_pro]
 train_set = train_set.loc[np.invert(idxs_pro), :]
 train_classes = train_classes.loc[np.invert(idxs_pro)]
+
+# Eliminate from training set residues of AATs not present in test protein
+for AAT in AATs_missing:
+    idxs = (train_classes == AAT)
+    train_set = train_set.loc[np.invert(idxs), :]
+    train_classes = train_classes.loc[np.invert(idxs)]
 
 # Discard entries missing CSs in the training sets
 idxs = np.invert(train_set.isnull().any(axis=1))
@@ -147,14 +167,22 @@ test_classes_missing = test_classes[idxs_missing]
 # ==================== Classify test set with all CSs ==================== #
 
 Labels = pd.DataFrame(np.zeros(len(test_set),))
-Probabilities = np.ndarray(shape=(len(test_set), 18))
+miss_res = len(AATs_fasta) - len(set(AATs_fasta) - {'GLY', 'PRO'})
+Probabilities = np.ndarray(shape=(len(test_set), len(fasta)-miss_res))
 
 Mdl = LinearDiscriminantAnalysis()                              # Classification model
 Mdl.fit(train_set_all, train_classes_all)                       # Train the model
 Labels[~idxs_missing] = Mdl.predict(test_set_all)               # Predicted classes
 Probabilities[~idxs_missing] = Mdl.predict_proba(test_set_all)  # Matrix of prediction probabilities
-Probabilities = np.c_[Probabilities[:, :7], np.zeros((len(test_set), 1)), Probabilities[:, 7:13],
-                      np.zeros((len(test_set), 1)), Probabilities[:, 13:]]
+
+if miss_res == 1:
+    if 'GLY' in AATs_fasta:
+        Probabilities = np.c_[Probabilities[:, :7], np.zeros((len(test_set), 1)), Probabilities[:, 7:]]
+    else:
+        Probabilities = np.c_[Probabilities[:, :13], np.zeros((len(test_set), 1)), Probabilities[:, 13:]]
+elif miss_res == 2:
+    Probabilities = np.c_[Probabilities[:, :7], np.zeros((len(test_set), 1)), Probabilities[:, 7:13],
+                          np.zeros((len(test_set), 1)), Probabilities[:, 13:]]
 
 # ================== Classify test set with missing CSs ================== #
 
@@ -177,43 +205,111 @@ for i in range(0, len(test_set)):
         comb = np.isnan(test_set[i, :])
 
         if np.logical_and(np.all(comb[ord_gly]), np.any(~comb[ord_pro])):
-            comb_aux = comb[list(set(list(range(0, len(header))))-set(ord_gly))]
-            train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux]))
-            train_classes = np.concatenate((train_classes_all, gly_classes))
+            if 'GLY' in AATs_fasta:
+                comb_aux = comb[list(set(list(range(0, len(header))))-set(ord_gly))]
+                train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux]))
+                train_classes = np.concatenate((train_classes_all, gly_classes))
 
-            Mdl_gly = LinearDiscriminantAnalysis()
-            Mdl_gly.fit(train_set, train_classes)
-            observation = test_set[i, ~comb].reshape(1, -1)
-            Labels.iloc[i] = Mdl_gly.predict(observation)
-            Probs_aux = Mdl_gly.predict_proba(observation)
-            Probs_aux = np.concatenate((Probs_aux[0, :13], np.array([0]), Probs_aux[0, 13:]))
-            Probabilities[i, :] = Probs_aux
+                Mdl_gly = LinearDiscriminantAnalysis()
+                Mdl_gly.fit(train_set, train_classes)
+                observation = test_set[i, ~comb].reshape(1, -1)
+                Labels.iloc[i] = Mdl_gly.predict(observation)
+                Probs_aux = Mdl_gly.predict_proba(observation)
+                if 'PRO' in AATs_fasta:
+                    Probs_aux = np.concatenate((Probs_aux[0, :13], np.array([0]), Probs_aux[0, 13:]))
+                Probabilities[i, :] = Probs_aux
+
+            else:
+                train_set = train_set_all[:, ~comb]
+                train_classes = train_classes_all
+
+                Mdl = LinearDiscriminantAnalysis()
+                Mdl.fit(train_set, train_classes)
+                observation = test_set[i, ~comb].reshape(1, -1)
+                Labels.iloc[i] = Mdl.predict(observation)
+                Probs_aux = Mdl.predict_proba(observation)
+                if 'PRO' in AATs_fasta:
+                    Probs_aux = np.concatenate((Probs_aux[0, :13], np.array([0]), Probs_aux[0, 13:]))
+                Probabilities[i, :] = Probs_aux
 
         elif np.logical_and(np.all(comb[ord_pro]), np.any(~comb[ord_gly])):
-            comb_aux = comb[list(set(list(range(0, len(header))))-set(ord_pro))]
-            train_set = np.concatenate((train_set_all[:, ~comb], train_pro[:, ~comb_aux]))
-            train_classes = np.concatenate((train_classes_all, pro_classes))
+            if 'PRO' in AATs_fasta:
+                comb_aux = comb[list(set(list(range(0, len(header))))-set(ord_pro))]
+                train_set = np.concatenate((train_set_all[:, ~comb], train_pro[:, ~comb_aux]))
+                train_classes = np.concatenate((train_classes_all, pro_classes))
 
-            Mdl_pro = LinearDiscriminantAnalysis()
-            Mdl_pro.fit(train_set, train_classes)
-            observation = test_set[i, ~comb].reshape(1, -1)
-            Labels.iloc[i] = Mdl_pro.predict(observation)
-            Probs_aux = Mdl_pro.predict_proba(observation)
-            Probs_aux = np.concatenate((Probs_aux[0, :7], np.array([0]), Probs_aux[0, 7:]))
-            Probabilities[i, :] = Probs_aux
+                Mdl_pro = LinearDiscriminantAnalysis()
+                Mdl_pro.fit(train_set, train_classes)
+                observation = test_set[i, ~comb].reshape(1, -1)
+                Labels.iloc[i] = Mdl_pro.predict(observation)
+                Probs_aux = Mdl_pro.predict_proba(observation)
+                if 'GLY' in AATs_fasta:
+                    Probs_aux = np.concatenate((Probs_aux[0, :7], np.array([0]), Probs_aux[0, 7:]))
+                Probabilities[i, :] = Probs_aux
+
+            else:
+                train_set = train_set_all[:, ~comb]
+                train_classes = train_classes_all
+
+                Mdl = LinearDiscriminantAnalysis()
+                Mdl.fit(train_set, train_classes)
+                observation = test_set[i, ~comb].reshape(1, -1)
+                Labels.iloc[i] = Mdl.predict(observation)
+                Probs_aux = Mdl.predict_proba(observation)
+                if 'GLY' in AATs_fasta:
+                    Probs_aux = np.concatenate((Probs_aux[0, :7], np.array([0]), Probs_aux[0, 7:]))
+                Probabilities[i, :] = Probs_aux
 
         elif np.logical_and(np.all(comb[ord_gly]), np.all(comb[ord_pro])):
-            comb_aux1 = comb[list(set(list(range(0, len(header)))) - set(ord_gly))]
-            comb_aux2 = comb[list(set(list(range(0, len(header)))) - set(ord_pro))]
-            train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux1], train_pro[:, ~comb_aux2]))
-            train_classes = np.concatenate((train_classes_all, gly_classes, pro_classes))
+            if all(x in AATs_fasta for x in {'GLY', 'PRO'}):
+                comb_aux1 = comb[list(set(list(range(0, len(header)))) - set(ord_gly))]
+                comb_aux2 = comb[list(set(list(range(0, len(header)))) - set(ord_pro))]
+                train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux1], train_pro[:, ~comb_aux2]))
+                train_classes = np.concatenate((train_classes_all, gly_classes, pro_classes))
 
-            Mdl_both = LinearDiscriminantAnalysis()
-            Mdl_both.fit(train_set, train_classes)
-            observation = test_set[i, ~comb].reshape(1, -1)
-            Labels.iloc[i] = Mdl_both.predict(observation)
-            Probs_aux = Mdl_both.predict_proba(observation)
-            Probabilities[i, :] = Probs_aux
+                Mdl_both = LinearDiscriminantAnalysis()
+                Mdl_both.fit(train_set, train_classes)
+                observation = test_set[i, ~comb].reshape(1, -1)
+                Labels.iloc[i] = Mdl_both.predict(observation)
+                Probs_aux = Mdl_both.predict_proba(observation)
+                Probabilities[i, :] = Probs_aux
+
+            elif 'GLY' in AATs_fasta:
+                comb_aux1 = comb[list(set(list(range(0, len(header)))) - set(ord_gly))]
+                train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux1]))
+                train_classes = np.concatenate((train_classes_all, gly_classes))
+
+                Mdl = LinearDiscriminantAnalysis()
+                Mdl.fit(train_set, train_classes)
+                observation = test_set[i, ~comb].reshape(1, -1)
+                Labels.iloc[i] = Mdl.predict(observation)
+                Probs_aux = Mdl.predict_proba(observation)
+                Probs_aux = np.concatenate((Probs_aux[0, :7], np.array([0]), Probs_aux[0, 7:]))
+                Probabilities[i, :] = Probs_aux
+
+            elif 'PRO' in AATs_fasta:
+                comb_aux2 = comb[list(set(list(range(0, len(header)))) - set(ord_pro))]
+                train_set = np.concatenate((train_set_all[:, ~comb], train_pro[:, ~comb_aux2]))
+                train_classes = np.concatenate((train_classes_all, pro_classes))
+
+                Mdl = LinearDiscriminantAnalysis()
+                Mdl.fit(train_set, train_classes)
+                observation = test_set[i, ~comb].reshape(1, -1)
+                Labels.iloc[i] = Mdl.predict(observation)
+                Probs_aux = Mdl.predict_proba(observation)
+                Probs_aux = np.concatenate((Probs_aux[0, :13], np.array([0]), Probs_aux[0, 13:]))
+                Probabilities[i, :] = Probs_aux
+
+            else:
+                train_set = train_set_all[:, ~comb]
+                train_classes = train_classes_all
+
+                Mdl = LinearDiscriminantAnalysis()
+                Mdl.fit(train_set, train_classes)
+                observation = test_set[i, ~comb].reshape(1, -1)
+                Labels.iloc[i] = Mdl.predict(observation)
+                Probs_aux = Mdl.predict_proba(observation)
+                Probabilities[i, :] = Probs_aux
 
         else:
             train_set = train_set_all[:, ~comb]
@@ -223,76 +319,56 @@ for i in range(0, len(test_set)):
             observation = test_set[i, ~comb].reshape(1, -1)
             Labels.iloc[i] = Mdl_miss.predict(observation)
             Probs_aux = Mdl_miss.predict_proba(observation)
-            Probs_aux = np.concatenate((Probs_aux[0, :7], np.array([0]), Probs_aux[0, 7:13],
-                                        np.array([0]), Probs_aux[0, 13:]))
+            if miss_res == 1:
+                if 'GLY' in AATs_fasta:
+                    Probs_aux = np.concatenate([Probs_aux[:, :7], np.array([0]), Probs_aux[:, 7:]])
+                else:
+                    Probs_aux = np.concatenate([Probs_aux[:, :13], np.array([0]), Probs_aux[:, 13:]])
+            elif miss_res == 2:
+                Probs_aux = np.concatenate([Probs_aux[:, :7], np.array([0]), Probs_aux[:, 7:13],
+                                            np.array([0]), Probs_aux[:, 13:]])
             Probabilities[i, :] = Probs_aux
 
 # Write probabilities matrix to excel file
 Probabilities[Probabilities < 0.1] = 0
-Probs = pd.DataFrame(Probabilities, index=SSN, columns=x_labels)
+Probs = pd.DataFrame(Probabilities, index=SSN, columns=AATs_fasta)
 Probs.to_excel('Probabilities.xlsx')
 
 # ================================= Plot ================================= #
 
-counts = np.cumsum(Labels.value_counts(sort=False))
+x_labels = np.unique(AATs_fasta)
+x_pos = list(range(0, len(x_labels)))
+y_pos = list(range(0, len(test_set)))
+x_vals = []
+y_vals = []
+p_vals = []
 
-x_ticks = list(range(0, 20))
-y_numbs = list(range(0, len(test_set)))
-color_list = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C9', 'C7', 'C8']
-
-'''
-fig, ax = plt.subplots()
-k = 0
-
-for i in y_numbs:
-    for j in x_ticks:
+for i in y_pos:
+    for j in x_pos:
         if Probabilities[i, j] != 0:
-            if i == counts[k]:
-                k = k + 1
-            ax.scatter(x_ticks[j], y_numbs[i], s=600, c=color_list[k % 10], marker='_', alpha=Probabilities[i, j])
-
-
-plt.ylabel("Spin systems", fontsize=20)
-ax.set_yticks(y_numbs)
-plt.yticks(y_numbs, SSN, fontsize=4)
-ax.tick_params(axis='y', which='major', color='w')
-plt.yticks(y_numbs, SSN, fontsize=6)
-
-plt.xlabel("LDA classification", fontsize=20)
-plt.xticks(x_ticks, x_labels, fontsize=14, rotation=45)
-
-plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
-plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
-ax.set_aspect(0.2)
-plt.show()
-'''
+            x_vals.append(x_pos[j])
+            y_vals.append(y_pos[i])
+            p_vals.append(Probabilities[i, j])
 
 plot_data = pd.DataFrame(columns=['label', 'residue', 'probability'])
-xx = []
-yy = []
-pp = []
-for i in y_numbs:
-    for j in x_ticks:
-        if Probabilities[i, j] != 0:
-            xx.append(x_ticks[j])
-            yy.append(y_numbs[i])
-            pp.append(Probabilities[i, j])
+plot_data['Label'] = x_vals
+plot_data['Residue'] = y_vals
+plot_data['Probability'] = p_vals
 
-plot_data['label'] = xx
-plot_data['residue'] = yy
-plot_data['probability'] = pp
+height = len(y_vals)/30
 
-height = len(yy)/30
-
-h = sns.relplot(x="label", y="residue", hue="label", size="probability", sizes=(40, 300), alpha=.5, palette="muted",
+h = sns.relplot(x="Label", y="Residue", hue="Label", size="Probability", sizes=(40, 300), alpha=.5, palette="muted",
                 height=height, data=plot_data)
 
-h.despine(top=False, right=False)
 h.set(aspect=0.5)
-plt.xlabel("LDA classification", size=20)
+h._legend.remove()
+h.ax.margins(x=0.05, y=0.02)
 plt.ylabel("Spin system", size=20)
-plt.yticks(y_numbs, SSN, fontsize=8)
-plt.xticks(x_ticks, x_labels, fontsize=10, rotation=45)
+plt.yticks(y_pos, SSN, fontsize=8)
+h.despine(top=False, right=False)
+plt.xlabel("LDA classification", size=20)
+plt.xticks(x_pos, x_labels, fontsize=10, rotation=60)
 plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
 plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
+plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
 plt.show()
