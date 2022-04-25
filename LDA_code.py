@@ -83,9 +83,9 @@ TableA['ID'] = TableB['ID']
 
 # ============================ Pre-processing ============================ #
 
-AAT_dict = {'A': 'ALA', 'R': 'ARG', 'N': 'ASN', 'D': 'ASP', 'C': 'CYS', 'Q': 'GLN', 'E': 'GLU', 'G': 'GLY', 'H': 'HIS',
-            'I': 'ILE', 'L': 'LEU', 'K': 'LYS', 'M': 'MET', 'F': 'PHE', 'P': 'PRO', 'O': 'PYL', 'S': 'SER', 'U': 'SEC',
-            'T': 'THR', 'W': 'TRP', 'Y': 'TYR', 'V': 'VAL'}
+AAT_dict = {'A': 'ALA', 'R': 'ARG', 'N': 'ASN', 'D': 'ASP', 'C': 'CYS', 'Q': 'GLN', 'E': 'GLU', 'G': 'GLY',
+            'H': 'HIS', 'I': 'ILE', 'L': 'LEU', 'K': 'LYS', 'M': 'MET', 'F': 'PHE', 'P': 'PRO', 'O': 'PYL',
+            'S': 'SER', 'U': 'SEC', 'T': 'THR', 'W': 'TRP', 'Y': 'TYR', 'V': 'VAL'}
 
 # Get Amino Acid Types in test protein
 fasta = set(fasta)
@@ -160,9 +160,9 @@ train_pro = train_pro.to_numpy()
 # Separate test set entries with all CSs from those missing CSs
 idxs_missing = np.isnan(test_set).any(axis=1)
 test_set_all = test_set[~idxs_missing, :]
-test_set_missing = test_set[idxs_missing, :]
+# test_set_missing = test_set[idxs_missing, :]
 test_classes_all = test_classes[~idxs_missing]
-test_classes_missing = test_classes[idxs_missing]
+# test_classes_missing = test_classes[idxs_missing]
 
 # ==================== Classify test set with all CSs ==================== #
 
