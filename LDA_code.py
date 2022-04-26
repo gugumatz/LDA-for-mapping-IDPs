@@ -160,9 +160,7 @@ train_pro = train_pro.to_numpy()
 # Separate test set entries with all CSs from those missing CSs
 idxs_missing = np.isnan(test_set).any(axis=1)
 test_set_all = test_set[~idxs_missing, :]
-# test_set_missing = test_set[idxs_missing, :]
 test_classes_all = test_classes[~idxs_missing]
-# test_classes_missing = test_classes[idxs_missing]
 
 # ==================== Classify test set with all CSs ==================== #
 
@@ -177,12 +175,16 @@ Probabilities[~idxs_missing] = Mdl.predict_proba(test_set_all)  # Matrix of pred
 
 if miss_res == 1:
     if 'GLY' in AATs_fasta:
-        Probabilities = np.c_[Probabilities[:, :7], np.zeros((len(test_set), 1)), Probabilities[:, 7:]]
+        Gidx = AATs_fasta.index('GLY')
+        Probabilities = np.c_[Probabilities[:, :Gidx], np.zeros((len(test_set), 1)), Probabilities[:, Gidx:]]
     else:
-        Probabilities = np.c_[Probabilities[:, :13], np.zeros((len(test_set), 1)), Probabilities[:, 13:]]
+        Pidx = AATs_fasta.index('PRO')
+        Probabilities = np.c_[Probabilities[:, :Pidx], np.zeros((len(test_set), 1)), Probabilities[:, Pidx:]]
 elif miss_res == 2:
-    Probabilities = np.c_[Probabilities[:, :7], np.zeros((len(test_set), 1)), Probabilities[:, 7:13],
-                          np.zeros((len(test_set), 1)), Probabilities[:, 13:]]
+    Gidx = AATs_fasta.index('GLY')
+    Pidx = AATs_fasta.index('PRO')
+    Probabilities = np.c_[Probabilities[:, :Gidx], np.zeros((len(test_set), 1)), Probabilities[:, Gidx:Pidx],
+                          np.zeros((len(test_set), 1)), Probabilities[:, Pidx:]]
 
 # ================== Classify test set with missing CSs ================== #
 
@@ -197,14 +199,12 @@ if 'CB' in header:
 ord_pro = []
 if 'H' in header:
     ord_pro.append(header.index('H'))
-if 'N' in header:
-    ord_pro.append(header.index('N'))
 
 for i in range(0, len(test_set)):
     if idxs_missing[i]:
         comb = np.isnan(test_set[i, :])
 
-        if np.logical_and(np.all(comb[ord_gly]), np.any(~comb[ord_pro])):
+        if np.logical_and(np.all(comb[ord_gly]), ~comb[ord_pro]):
             if 'GLY' in AATs_fasta:
                 comb_aux = comb[list(set(list(range(0, len(header))))-set(ord_gly))]
                 train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux]))
@@ -216,7 +216,7 @@ for i in range(0, len(test_set)):
                 Labels.iloc[i] = Mdl_gly.predict(observation)
                 Probs_aux = Mdl_gly.predict_proba(observation)
                 if 'PRO' in AATs_fasta:
-                    Probs_aux = np.concatenate((Probs_aux[0, :13], np.array([0]), Probs_aux[0, 13:]))
+                    Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
                 Probabilities[i, :] = Probs_aux
 
             else:
@@ -229,10 +229,10 @@ for i in range(0, len(test_set)):
                 Labels.iloc[i] = Mdl.predict(observation)
                 Probs_aux = Mdl.predict_proba(observation)
                 if 'PRO' in AATs_fasta:
-                    Probs_aux = np.concatenate((Probs_aux[0, :13], np.array([0]), Probs_aux[0, 13:]))
+                    Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
                 Probabilities[i, :] = Probs_aux
 
-        elif np.logical_and(np.all(comb[ord_pro]), np.any(~comb[ord_gly])):
+        elif np.logical_and(comb[ord_pro], np.any(~comb[ord_gly])):
             if 'PRO' in AATs_fasta:
                 comb_aux = comb[list(set(list(range(0, len(header))))-set(ord_pro))]
                 train_set = np.concatenate((train_set_all[:, ~comb], train_pro[:, ~comb_aux]))
@@ -244,7 +244,7 @@ for i in range(0, len(test_set)):
                 Labels.iloc[i] = Mdl_pro.predict(observation)
                 Probs_aux = Mdl_pro.predict_proba(observation)
                 if 'GLY' in AATs_fasta:
-                    Probs_aux = np.concatenate((Probs_aux[0, :7], np.array([0]), Probs_aux[0, 7:]))
+                    Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
                 Probabilities[i, :] = Probs_aux
 
             else:
@@ -257,10 +257,10 @@ for i in range(0, len(test_set)):
                 Labels.iloc[i] = Mdl.predict(observation)
                 Probs_aux = Mdl.predict_proba(observation)
                 if 'GLY' in AATs_fasta:
-                    Probs_aux = np.concatenate((Probs_aux[0, :7], np.array([0]), Probs_aux[0, 7:]))
+                    Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
                 Probabilities[i, :] = Probs_aux
 
-        elif np.logical_and(np.all(comb[ord_gly]), np.all(comb[ord_pro])):
+        elif np.logical_and(np.all(comb[ord_gly]), comb[ord_pro]):
             if all(x in AATs_fasta for x in {'GLY', 'PRO'}):
                 comb_aux1 = comb[list(set(list(range(0, len(header)))) - set(ord_gly))]
                 comb_aux2 = comb[list(set(list(range(0, len(header)))) - set(ord_pro))]
@@ -284,7 +284,7 @@ for i in range(0, len(test_set)):
                 observation = test_set[i, ~comb].reshape(1, -1)
                 Labels.iloc[i] = Mdl.predict(observation)
                 Probs_aux = Mdl.predict_proba(observation)
-                Probs_aux = np.concatenate((Probs_aux[0, :7], np.array([0]), Probs_aux[0, 7:]))
+                Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
                 Probabilities[i, :] = Probs_aux
 
             elif 'PRO' in AATs_fasta:
@@ -297,7 +297,7 @@ for i in range(0, len(test_set)):
                 observation = test_set[i, ~comb].reshape(1, -1)
                 Labels.iloc[i] = Mdl.predict(observation)
                 Probs_aux = Mdl.predict_proba(observation)
-                Probs_aux = np.concatenate((Probs_aux[0, :13], np.array([0]), Probs_aux[0, 13:]))
+                Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
                 Probabilities[i, :] = Probs_aux
 
             else:
@@ -321,12 +321,12 @@ for i in range(0, len(test_set)):
             Probs_aux = Mdl_miss.predict_proba(observation)
             if miss_res == 1:
                 if 'GLY' in AATs_fasta:
-                    Probs_aux = np.concatenate([Probs_aux[:, :7], np.array([0]), Probs_aux[:, 7:]])
+                    Probs_aux = np.concatenate([Probs_aux[:, :Gidx], np.array([0]), Probs_aux[:, Gidx:]])
                 else:
-                    Probs_aux = np.concatenate([Probs_aux[:, :13], np.array([0]), Probs_aux[:, 13:]])
+                    Probs_aux = np.concatenate([Probs_aux[:, :Pidx], np.array([0]), Probs_aux[:, Pidx:]])
             elif miss_res == 2:
-                Probs_aux = np.concatenate([Probs_aux[:, :7], np.array([0]), Probs_aux[:, 7:13],
-                                            np.array([0]), Probs_aux[:, 13:]])
+                Probs_aux = np.concatenate([Probs_aux[:, :Gidx], np.array([0]), Probs_aux[:, Gidx:Pidx],
+                                            np.array([0]), Probs_aux[:, Pidx:]])
             Probabilities[i, :] = Probs_aux
 
 # Write probabilities matrix to excel file
