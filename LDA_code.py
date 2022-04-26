@@ -80,6 +80,7 @@ except:
     TableA['HA'] = TableB.loc[:, "HA"].astype(float)
 TableA['amino'] = TableB['amino']
 TableA['ID'] = TableB['ID']
+TableA['protein'] = TableB['protein']
 
 # ============================ Pre-processing ============================ #
 
@@ -199,135 +200,138 @@ if 'CB' in header:
 ord_pro = []
 if 'H' in header:
     ord_pro.append(header.index('H'))
+if 'N' in header:
+    ord_pro.append(header.index('N'))
 
-for i in range(0, len(test_set)):
-    if idxs_missing[i]:
-        comb = np.isnan(test_set[i, :])
+num_missing = [i for i, x in enumerate(idxs_missing) if x]
 
-        if np.logical_and(np.all(comb[ord_gly]), ~comb[ord_pro]):
-            if 'GLY' in AATs_fasta:
-                comb_aux = comb[list(set(list(range(0, len(header))))-set(ord_gly))]
-                train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux]))
-                train_classes = np.concatenate((train_classes_all, gly_classes))
+for i in num_missing:
+    comb = np.isnan(test_set[i, :])
 
-                Mdl_gly = LinearDiscriminantAnalysis()
-                Mdl_gly.fit(train_set, train_classes)
-                observation = test_set[i, ~comb].reshape(1, -1)
-                Labels.iloc[i] = Mdl_gly.predict(observation)
-                Probs_aux = Mdl_gly.predict_proba(observation)
-                if 'PRO' in AATs_fasta:
-                    Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
-                Probabilities[i, :] = Probs_aux
+    if np.logical_and(np.all(comb[ord_gly]), np.any(~comb[ord_pro])):
+        if 'GLY' in AATs_fasta:
+            comb_aux = comb[list(set(list(range(0, len(header))))-set(ord_gly))]
+            train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux]))
+            train_classes = np.concatenate((train_classes_all, gly_classes))
 
-            else:
-                train_set = train_set_all[:, ~comb]
-                train_classes = train_classes_all
-
-                Mdl = LinearDiscriminantAnalysis()
-                Mdl.fit(train_set, train_classes)
-                observation = test_set[i, ~comb].reshape(1, -1)
-                Labels.iloc[i] = Mdl.predict(observation)
-                Probs_aux = Mdl.predict_proba(observation)
-                if 'PRO' in AATs_fasta:
-                    Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
-                Probabilities[i, :] = Probs_aux
-
-        elif np.logical_and(comb[ord_pro], np.any(~comb[ord_gly])):
+            Mdl_gly = LinearDiscriminantAnalysis()
+            Mdl_gly.fit(train_set, train_classes)
+            observation = test_set[i, ~comb].reshape(1, -1)
+            Labels.iloc[i] = Mdl_gly.predict(observation)
+            Probs_aux = Mdl_gly.predict_proba(observation)
             if 'PRO' in AATs_fasta:
-                comb_aux = comb[list(set(list(range(0, len(header))))-set(ord_pro))]
-                train_set = np.concatenate((train_set_all[:, ~comb], train_pro[:, ~comb_aux]))
-                train_classes = np.concatenate((train_classes_all, pro_classes))
-
-                Mdl_pro = LinearDiscriminantAnalysis()
-                Mdl_pro.fit(train_set, train_classes)
-                observation = test_set[i, ~comb].reshape(1, -1)
-                Labels.iloc[i] = Mdl_pro.predict(observation)
-                Probs_aux = Mdl_pro.predict_proba(observation)
-                if 'GLY' in AATs_fasta:
-                    Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
-                Probabilities[i, :] = Probs_aux
-
-            else:
-                train_set = train_set_all[:, ~comb]
-                train_classes = train_classes_all
-
-                Mdl = LinearDiscriminantAnalysis()
-                Mdl.fit(train_set, train_classes)
-                observation = test_set[i, ~comb].reshape(1, -1)
-                Labels.iloc[i] = Mdl.predict(observation)
-                Probs_aux = Mdl.predict_proba(observation)
-                if 'GLY' in AATs_fasta:
-                    Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
-                Probabilities[i, :] = Probs_aux
-
-        elif np.logical_and(np.all(comb[ord_gly]), comb[ord_pro]):
-            if all(x in AATs_fasta for x in {'GLY', 'PRO'}):
-                comb_aux1 = comb[list(set(list(range(0, len(header)))) - set(ord_gly))]
-                comb_aux2 = comb[list(set(list(range(0, len(header)))) - set(ord_pro))]
-                train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux1], train_pro[:, ~comb_aux2]))
-                train_classes = np.concatenate((train_classes_all, gly_classes, pro_classes))
-
-                Mdl_both = LinearDiscriminantAnalysis()
-                Mdl_both.fit(train_set, train_classes)
-                observation = test_set[i, ~comb].reshape(1, -1)
-                Labels.iloc[i] = Mdl_both.predict(observation)
-                Probs_aux = Mdl_both.predict_proba(observation)
-                Probabilities[i, :] = Probs_aux
-
-            elif 'GLY' in AATs_fasta:
-                comb_aux1 = comb[list(set(list(range(0, len(header)))) - set(ord_gly))]
-                train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux1]))
-                train_classes = np.concatenate((train_classes_all, gly_classes))
-
-                Mdl = LinearDiscriminantAnalysis()
-                Mdl.fit(train_set, train_classes)
-                observation = test_set[i, ~comb].reshape(1, -1)
-                Labels.iloc[i] = Mdl.predict(observation)
-                Probs_aux = Mdl.predict_proba(observation)
-                Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
-                Probabilities[i, :] = Probs_aux
-
-            elif 'PRO' in AATs_fasta:
-                comb_aux2 = comb[list(set(list(range(0, len(header)))) - set(ord_pro))]
-                train_set = np.concatenate((train_set_all[:, ~comb], train_pro[:, ~comb_aux2]))
-                train_classes = np.concatenate((train_classes_all, pro_classes))
-
-                Mdl = LinearDiscriminantAnalysis()
-                Mdl.fit(train_set, train_classes)
-                observation = test_set[i, ~comb].reshape(1, -1)
-                Labels.iloc[i] = Mdl.predict(observation)
-                Probs_aux = Mdl.predict_proba(observation)
                 Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
-                Probabilities[i, :] = Probs_aux
-
-            else:
-                train_set = train_set_all[:, ~comb]
-                train_classes = train_classes_all
-
-                Mdl = LinearDiscriminantAnalysis()
-                Mdl.fit(train_set, train_classes)
-                observation = test_set[i, ~comb].reshape(1, -1)
-                Labels.iloc[i] = Mdl.predict(observation)
-                Probs_aux = Mdl.predict_proba(observation)
-                Probabilities[i, :] = Probs_aux
+            Probabilities[i, :] = Probs_aux
 
         else:
             train_set = train_set_all[:, ~comb]
+            train_classes = train_classes_all
 
-            Mdl_miss = LinearDiscriminantAnalysis()
-            Mdl_miss.fit(train_set, train_classes_all)
+            Mdl = LinearDiscriminantAnalysis()
+            Mdl.fit(train_set, train_classes)
             observation = test_set[i, ~comb].reshape(1, -1)
-            Labels.iloc[i] = Mdl_miss.predict(observation)
-            Probs_aux = Mdl_miss.predict_proba(observation)
-            if miss_res == 1:
-                if 'GLY' in AATs_fasta:
-                    Probs_aux = np.concatenate([Probs_aux[:, :Gidx], np.array([0]), Probs_aux[:, Gidx:]])
-                else:
-                    Probs_aux = np.concatenate([Probs_aux[:, :Pidx], np.array([0]), Probs_aux[:, Pidx:]])
-            elif miss_res == 2:
-                Probs_aux = np.concatenate([Probs_aux[:, :Gidx], np.array([0]), Probs_aux[:, Gidx:Pidx-1],
-                                            np.array([0]), Probs_aux[:, Pidx-1:]])
+            Labels.iloc[i] = Mdl.predict(observation)
+            Probs_aux = Mdl.predict_proba(observation)
+            if 'PRO' in AATs_fasta:
+                Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
             Probabilities[i, :] = Probs_aux
+
+    elif np.logical_and(np.all(comb[ord_pro]), np.any(~comb[ord_gly])):
+        if 'PRO' in AATs_fasta:
+            comb_aux = comb[list(set(list(range(0, len(header))))-set(ord_pro))]
+            train_set = np.concatenate((train_set_all[:, ~comb], train_pro[:, ~comb_aux]))
+            train_classes = np.concatenate((train_classes_all, pro_classes))
+
+            Mdl_pro = LinearDiscriminantAnalysis()
+            Mdl_pro.fit(train_set, train_classes)
+            observation = test_set[i, ~comb].reshape(1, -1)
+            Labels.iloc[i] = Mdl_pro.predict(observation)
+            Probs_aux = Mdl_pro.predict_proba(observation)
+            if 'GLY' in AATs_fasta:
+                Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
+            Probabilities[i, :] = Probs_aux
+
+        else:
+            train_set = train_set_all[:, ~comb]
+            train_classes = train_classes_all
+
+            Mdl = LinearDiscriminantAnalysis()
+            Mdl.fit(train_set, train_classes)
+            observation = test_set[i, ~comb].reshape(1, -1)
+            Labels.iloc[i] = Mdl.predict(observation)
+            Probs_aux = Mdl.predict_proba(observation)
+            if 'GLY' in AATs_fasta:
+                Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
+            Probabilities[i, :] = Probs_aux
+
+    elif np.logical_and(np.all(comb[ord_gly]), np.all(comb[ord_pro])):
+        if all(x in AATs_fasta for x in {'GLY', 'PRO'}):
+            comb_aux1 = comb[list(set(list(range(0, len(header)))) - set(ord_gly))]
+            comb_aux2 = comb[list(set(list(range(0, len(header)))) - set(ord_pro))]
+            train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux1], train_pro[:, ~comb_aux2]))
+            train_classes = np.concatenate((train_classes_all, gly_classes, pro_classes))
+
+            Mdl_both = LinearDiscriminantAnalysis()
+            Mdl_both.fit(train_set, train_classes)
+            observation = test_set[i, ~comb].reshape(1, -1)
+            Labels.iloc[i] = Mdl_both.predict(observation)
+            Probs_aux = Mdl_both.predict_proba(observation)
+            Probabilities[i, :] = Probs_aux
+
+        elif 'GLY' in AATs_fasta:
+            comb_aux1 = comb[list(set(list(range(0, len(header)))) - set(ord_gly))]
+            train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux1]))
+            train_classes = np.concatenate((train_classes_all, gly_classes))
+
+            Mdl = LinearDiscriminantAnalysis()
+            Mdl.fit(train_set, train_classes)
+            observation = test_set[i, ~comb].reshape(1, -1)
+            Labels.iloc[i] = Mdl.predict(observation)
+            Probs_aux = Mdl.predict_proba(observation)
+            Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
+            Probabilities[i, :] = Probs_aux
+
+        elif 'PRO' in AATs_fasta:
+            comb_aux2 = comb[list(set(list(range(0, len(header)))) - set(ord_pro))]
+            train_set = np.concatenate((train_set_all[:, ~comb], train_pro[:, ~comb_aux2]))
+            train_classes = np.concatenate((train_classes_all, pro_classes))
+
+            Mdl = LinearDiscriminantAnalysis()
+            Mdl.fit(train_set, train_classes)
+            observation = test_set[i, ~comb].reshape(1, -1)
+            Labels.iloc[i] = Mdl.predict(observation)
+            Probs_aux = Mdl.predict_proba(observation)
+            Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
+            Probabilities[i, :] = Probs_aux
+
+        else:
+            train_set = train_set_all[:, ~comb]
+            train_classes = train_classes_all
+
+            Mdl = LinearDiscriminantAnalysis()
+            Mdl.fit(train_set, train_classes)
+            observation = test_set[i, ~comb].reshape(1, -1)
+            Labels.iloc[i] = Mdl.predict(observation)
+            Probs_aux = Mdl.predict_proba(observation)
+            Probabilities[i, :] = Probs_aux
+
+    else:
+        train_set = train_set_all[:, ~comb]
+
+        Mdl_miss = LinearDiscriminantAnalysis()
+        Mdl_miss.fit(train_set, train_classes_all)
+        observation = test_set[i, ~comb].reshape(1, -1)
+        Labels.iloc[i] = Mdl_miss.predict(observation)
+        Probs_aux = Mdl_miss.predict_proba(observation)
+        if miss_res == 1:
+            if 'GLY' in AATs_fasta:
+                Probs_aux = np.concatenate([Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]])
+            else:
+                Probs_aux = np.concatenate([Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]])
+        elif miss_res == 2:
+            Probs_aux = np.concatenate([Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:Pidx-1],
+                                        np.array([0]), Probs_aux[0, Pidx-1:]])
+        Probabilities[i, :] = Probs_aux
 
 # Write probabilities matrix to excel file
 Probabilities[Probabilities < 0.1] = 0
