@@ -183,8 +183,8 @@ if miss_res == 1:
 elif miss_res == 2:
     Gidx = AATs_fasta.index('GLY')
     Pidx = AATs_fasta.index('PRO')
-    Probabilities = np.c_[Probabilities[:, :Gidx], np.zeros((len(test_set), 1)), Probabilities[:, Gidx:Pidx],
-                          np.zeros((len(test_set), 1)), Probabilities[:, Pidx:]]
+    Probabilities = np.c_[Probabilities[:, :Gidx], np.zeros((len(test_set), 1)), Probabilities[:, Gidx:Pidx-1],
+                          np.zeros((len(test_set), 1)), Probabilities[:, Pidx-1:]]
 
 # ================== Classify test set with missing CSs ================== #
 
@@ -325,15 +325,14 @@ for i in range(0, len(test_set)):
                 else:
                     Probs_aux = np.concatenate([Probs_aux[:, :Pidx], np.array([0]), Probs_aux[:, Pidx:]])
             elif miss_res == 2:
-                Probs_aux = np.concatenate([Probs_aux[:, :Gidx], np.array([0]), Probs_aux[:, Gidx:Pidx],
-                                            np.array([0]), Probs_aux[:, Pidx:]])
+                Probs_aux = np.concatenate([Probs_aux[:, :Gidx], np.array([0]), Probs_aux[:, Gidx:Pidx-1],
+                                            np.array([0]), Probs_aux[:, Pidx-1:]])
             Probabilities[i, :] = Probs_aux
 
 # Write probabilities matrix to excel file
 Probabilities[Probabilities < 0.1] = 0
 Probs = pd.DataFrame(Probabilities, index=SSN, columns=AATs_fasta)
 Probs.to_excel('Probabilities.xlsx')
-
 # ================================= Plot ================================= #
 
 x_labels = np.unique(AATs_fasta)
