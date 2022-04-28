@@ -345,7 +345,7 @@ x_pos = list(range(0, len(x_labels)))
 y_pos = list(range(0, len(test_set)))
 legend_labels = x_labels.copy()
 
-for i in range(0, Probabilities.shape[1]):
+for i in reversed(range(0, Probabilities.shape[1])):
     if (Probabilities[:, i] == 0).all():
         legend_labels.pop(i)
 
@@ -369,9 +369,8 @@ height = len(y_vals)/30
 palette = sns.color_palette(cc.glasbey, n_colors=len(legend_labels))
 
 h = sns.relplot(x="Label", y="Residue", hue="Label", size="Probability", sizes=(40, 300), alpha=.5, palette=palette,
-                height=height, data=plot_data)
+                height=height, data=plot_data, aspect=0.0882*len(x_labels)/height)
 
-h.set(aspect=0.5)
 h.ax.margins(x=0.05, y=0.02)
 plt.ylabel("Spin system", size=20)
 plt.yticks(y_pos, SSN, fontsize=8)
@@ -380,7 +379,7 @@ plt.xlabel("LDA classification", size=20)
 plt.xticks(x_pos, x_labels, fontsize=10, rotation=60)
 plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
 plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
-sns.move_legend(h, "upper right", bbox_to_anchor=(0.632, 0.97))
+sns.move_legend(h, "upper right", bbox_to_anchor=(0.67, 0.97))
 for t, l in zip(h._legend.texts, ['Labels']+legend_labels):
     t.set_text(l)
 plt.show()
