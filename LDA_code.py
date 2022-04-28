@@ -6,6 +6,7 @@ import pandas as pd
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import matplotlib.pyplot as plt
 import seaborn as sns
+import colorcet as cc
 
 # ================ LDA method for residue mapping in IDPs ================ #
 
@@ -339,9 +340,15 @@ Probs = pd.DataFrame(Probabilities, index=SSN, columns=AATs_fasta)
 Probs.to_excel('Probabilities.xlsx')
 # ================================= Plot ================================= #
 
-x_labels = np.unique(AATs_fasta)
+x_labels = list(np.unique(AATs_fasta))
 x_pos = list(range(0, len(x_labels)))
 y_pos = list(range(0, len(test_set)))
+legend_labels = x_labels.copy()
+
+for i in range(0, Probabilities.shape[1]):
+    if (Probabilities[:, i] == 0).all():
+        legend_labels.pop(i)
+
 x_vals = []
 y_vals = []
 p_vals = []
@@ -359,12 +366,12 @@ plot_data['Residue'] = y_vals
 plot_data['Probability'] = p_vals
 
 height = len(y_vals)/30
+palette = sns.color_palette(cc.glasbey, n_colors=len(legend_labels))
 
-h = sns.relplot(x="Label", y="Residue", hue="Label", size="Probability", sizes=(40, 300), alpha=.5, palette="muted",
+h = sns.relplot(x="Label", y="Residue", hue="Label", size="Probability", sizes=(40, 300), alpha=.5, palette=palette,
                 height=height, data=plot_data)
 
 h.set(aspect=0.5)
-h._legend.remove()
 h.ax.margins(x=0.05, y=0.02)
 plt.ylabel("Spin system", size=20)
 plt.yticks(y_pos, SSN, fontsize=8)
@@ -373,5 +380,7 @@ plt.xlabel("LDA classification", size=20)
 plt.xticks(x_pos, x_labels, fontsize=10, rotation=60)
 plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
 plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
-plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+sns.move_legend(h, "upper right", bbox_to_anchor=(0.632, 0.97))
+for t, l in zip(h._legend.texts, ['Labels']+legend_labels):
+    t.set_text(l)
 plt.show()
