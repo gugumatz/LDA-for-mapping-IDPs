@@ -10,15 +10,19 @@ import colorcet as cc
 
 # ================ LDA method for residue mapping in IDPs ================ #
 
-# Load test data
+# Read test data
 test_data = pd.read_excel(sys.argv[1])
-fasta = open(sys.argv[2], 'r').read().rstrip('\n')
 
-# ---------- Automatic retrieval of data from the BMRB database ---------- #
+# Read fasta file
+with open(sys.argv[2], 'r') as f:
+    fasta = [line.rstrip('\n') for line in f]
+fasta = ''.join(fasta)
 
-# List of BMRB identifiers containing NMR data of IDPs
-scanlist = [6436, 6869, 11526, 15176, 15179, 15180, 15201, 15225, 15430, 15883,
-            15884, 16296, 16445, 17290, 17483, 19258, 25118, 30205]
+# Read BMRB entries for training set
+with open(sys.argv[3], 'r') as f:
+    scanlist = [line.rstrip('\n') for line in f]
+
+# ------ Automatic retrieval of training data from the BMRB database ------ #
 
 W = {}
 for k, l in enumerate(scanlist):
