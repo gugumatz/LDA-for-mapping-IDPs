@@ -20,9 +20,12 @@ fasta = ''.join(fasta)
 
 # Read BMRB entries for training set
 with open(sys.argv[3], 'r') as f:
+    line: str
     scanlist = [line.rstrip('\n') for line in f]
+while scanlist[-1] == '':
+    scanlist.pop(-1)
 
-# ------ Automatic retrieval of training data from the BMRB database ------ #
+# ===== Automatic retrieval of training data from the BMRB database ====== #
 
 W = {}
 for k, l in enumerate(scanlist):
@@ -71,7 +74,7 @@ for key in W:
 TableA = pd.DataFrame(index=indexTB, columns=['ID', 'HA', 'HB', 'CA', 'CB', 'C']).astype('float')
 try:
     TableA['HB'] = TableB.loc[:, "HB":"HB3"].astype(float).mean(axis=1).astype(float)
-except:
+except 'KeyError':
     TableA['HB'] = TableB.loc[:, "HB"].astype(float)
 TableA['H'] = TableB.loc[:, "H"].astype(float)
 TableA['CA'] = TableB.loc[:, "CA"].astype(float)
@@ -81,7 +84,7 @@ TableA['C'] = TableB.loc[:, "C"].astype(float)
 
 try:
     TableA['HA'] = TableB.loc[:, ["HA", "HA2", "HA3"]].astype(float).mean(axis=1)
-except:
+except 'KeyError':
     TableA['HA'] = TableB.loc[:, "HA"].astype(float)
 TableA['amino'] = TableB['amino']
 TableA['ID'] = TableB['ID']
@@ -93,11 +96,9 @@ AAT_dict = {'A': 'ALA', 'R': 'ARG', 'N': 'ASN', 'D': 'ASP', 'C': 'CYS', 'Q': 'GL
             'H': 'HIS', 'I': 'ILE', 'L': 'LEU', 'K': 'LYS', 'M': 'MET', 'F': 'PHE', 'P': 'PRO', 'O': 'PYL',
             'S': 'SER', 'U': 'SEC', 'T': 'THR', 'W': 'TRP', 'Y': 'TYR', 'V': 'VAL'}
 
-# Get Amino Acid Types in test protein
+# Get Amino Acid Types in test protein from fasta file
 fasta = set(fasta)
-AATs_fasta = [0] * len(fasta)
-for i, k in enumerate(fasta):
-    AATs_fasta[i] = AAT_dict[k]
+AATs_fasta = [AAT_dict[x] for x in fasta]
 AATs_fasta.sort()
 
 # AATs not in test protein
@@ -342,6 +343,7 @@ for i in num_missing:
 Probabilities[Probabilities < 0.1] = 0
 Probs = pd.DataFrame(Probabilities, index=SSN, columns=AATs_fasta)
 Probs.to_excel('Probabilities.xlsx')
+
 # ================================= Plot ================================= #
 
 x_labels = list(np.unique(AATs_fasta))
@@ -383,7 +385,7 @@ plt.xlabel("LDA classification", size=20)
 plt.xticks(x_pos, x_labels, fontsize=10, rotation=60)
 plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
 plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
-sns.move_legend(h, "upper right", bbox_to_anchor=(0.67, 0.97))
+sns.move_legend(h, "upper right", bbox_to_anchor=(0.67, 0.8))
 for t, l in zip(h._legend.texts, ['Labels']+legend_labels):
     t.set_text(l)
 plt.show()
