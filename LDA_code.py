@@ -11,7 +11,10 @@ import colorcet as cc
 # ================ LDA method for residue mapping in IDPs ================ #
 
 # Read test data
-test_data = pd.read_excel(sys.argv[1])
+try:
+    test_data = pd.read_excel(sys.argv[1])
+except 'FileNotFoundError':
+    test_data = pd.read_excel(sys.argv[1], engine="odf")
 
 # Read fasta file
 with open(sys.argv[2], 'r') as f:
@@ -389,3 +392,4 @@ sns.move_legend(h, "upper right", bbox_to_anchor=(0.67, 0.8))
 for t, l in zip(h._legend.texts, ['Labels']+legend_labels):
     t.set_text(l)
 plt.show()
+
