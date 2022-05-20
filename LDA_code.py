@@ -7,6 +7,7 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import matplotlib.pyplot as plt
 import seaborn as sns
 import colorcet as cc
+import matplotlib.pyplot as pyplot
 
 # ================ LDA method for residue mapping in IDPs ================ #
 
@@ -38,7 +39,7 @@ for k, l in enumerate(scanlist):
         try:
             ent = pynmrstar.Entry.from_database(l)
             waiter = False
-        except:
+        except (ConnectionError, OSError) as e:
             print('connection error on: ' + str(l))
             time.sleep(10)
             waiter = True
@@ -391,5 +392,9 @@ plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
 sns.move_legend(h, "upper right", bbox_to_anchor=(0.67, 0.8))
 for t, l in zip(h._legend.texts, ['Labels']+legend_labels):
     t.set_text(l)
-plt.show()
 
+h.fig.set_dpi(100)
+h.fig.set_figheight(15)
+h.fig.set_figwidth(25)
+h.savefig('Class_probs.svg', dpi=100)
+plt.show()
