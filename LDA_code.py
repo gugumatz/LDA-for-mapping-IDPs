@@ -11,6 +11,9 @@ import itertools
 from itertools import compress
 import re
 
+import matplotlib.pyplot as pyplot
+from collections import Counter
+
 # ================ LDA method for residue mapping in IDPs ================= #
 
 # Read test data
@@ -208,9 +211,9 @@ if miss_res == 2:
     Probabilities = np.c_[Probabilities[:, :Gidx], np.zeros((len(test_set), 1)), Probabilities[:, Gidx:Pidx-1],
                           np.zeros((len(test_set), 1)), Probabilities[:, Pidx-1:]]
 elif miss_res == 1:
-    if 'GLY' in AATs_fasta:
+    if np.logical_and('GLY' in AATs_fasta, np.logical_or('HB' in header, 'CB' in header)):
         Probabilities = np.c_[Probabilities[:, :Gidx], np.zeros((len(test_set), 1)), Probabilities[:, Gidx:]]
-    elif 'PRO' in AATs_fasta:
+    elif np.logical_and('PRO' in AATs_fasta, np.logical_or('H' in header, 'N' in header)):
         Probabilities = np.c_[Probabilities[:, :Pidx], np.zeros((len(test_set), 1)), Probabilities[:, Pidx:]]
 
 # ================== Classify test set with missing CSs =================== #
@@ -383,9 +386,16 @@ for i in num_missing:
                                         np.array([0]), Probs_aux[0, Pidx-1:]])
         Probabilities[i, :] = Probs_aux
 
+# Set threshold of probabilities (for more clear results)
+for i in range(len(test_set)):
+    comb = np.isnan(test_set[i, :])
+    CSs = set(compress(header, comb))
+    if {'CB'}.issubset(CSs):
+        Probabilities[i, Probabilities[i, :] < 0.05] = 0
+    else:
+        Probabilities[i, Probabilities[i, :] < 0.1] = 0
 
 # Write probabilities matrix to excel file
-Probabilities[Probabilities < 0.1] = 0
 Probs = pd.DataFrame(Probabilities, index=SSN, columns=AATs_fasta)
 Probs.to_excel('Probabilities.xlsx')
 
@@ -447,60 +457,73 @@ if sys.argv[-1] == 'chains.txt':
 
     # Form all possible words (sequences of AATs given by chains) and get their probabilities
     words = []
-    words_probs = []
+    words_probs_mean = []
+    words_probs_lowest = []
     for i in range(len(combinations)):
         aux_combs = combinations[i]
         aux_probs = combs_probs[i]
         aux1 = []
         aux2 = []
+        aux3 = []
         for j in range(len(aux_combs)):
             aux1.append(''.join(aux_combs[j]))
-            aux2.append(np.prod(aux_probs[j]))
+            aux2.append(np.mean(aux_probs[j]))
+            aux3.append(np.amin(aux_probs[j]))
         words.append(aux1)
-        words_probs.append(aux2)
+        words_probs_mean.append(aux2)
+        words_probs_lowest.append(aux3)
 
     # Find which words actually exist in the primary sequence of the test protein and which don't exist
     existing_words = []
-    existing_probs = []
+    existing_probs_mean = []
+    existing_probs_lowest = []
     absent_words = []
     for i in range(len(words)):
         aux = words[i]
-        aux1 = words_probs[i]
-        aux2 = []
+        aux1 = words_probs_mean[i]
+        aux2 = words_probs_lowest[i]
         aux3 = []
         aux4 = []
+        aux5 = []
+        aux6 = []
         for j in range(len(aux)):
             if [m.start() for m in re.finditer(aux[j], fasta)]:
-                aux2.append(aux[j])
-                aux3.append(aux1[j])
+                aux3.append(aux[j])
+                aux4.append(aux1[j])
+                aux6.append(aux2[j])
             else:
-                aux4.append(aux[j])
-        existing_words.append(aux2)
-        existing_probs.append(aux3)
-        absent_words.append(aux4)
+                aux5.append(aux[j])
+        existing_words.append(aux3)
+        existing_probs_mean.append(aux4)
+        existing_probs_lowest.append(aux6)
+        absent_words.append(aux5)
 
     # Create data frame to export excel file
-    chains_probs = pd.DataFrame(columns=['Chain #', 'SSNs', 'Possibilities', 'Probabilities', 'Discarded'])
+    chains_probs = pd.DataFrame(columns=['Chain #', 'SSNs', 'Possibilities', 'Mean prob', 'Lowest prob', 'Discarded'])
     for i in range(len(existing_words)):
-        aux1 = chains_SSN_indices[i]
+        aux1 = SSN.iloc[chains_SSN_indices[i]].values.tolist()
         aux2 = existing_words[i]
-        aux3 = existing_probs[i]
-        aux4 = absent_words[i]
-        df1 = pd.DataFrame(columns=['Chain #', 'SSNs', 'Possibilities', 'Probabilities', 'Discarded'])
-        df2 = pd.DataFrame(columns=['Chain #', 'SSNs', 'Possibilities', 'Probabilities', 'Discarded'])
+        aux3 = existing_probs_mean[i]
+        aux4 = existing_probs_lowest[i]
+        aux5 = absent_words[i]
+        df1 = pd.DataFrame(columns=['Chain #', 'SSNs', 'Possibilities', 'Mean prob', 'Lowest prob', 'Discarded'])
+        df2 = pd.DataFrame(columns=['Chain #', 'SSNs', 'Possibilities', 'Mean prob', 'Lowest prob', 'Discarded'])
         for j in range(len(aux2)):
             if j == 0:
                 df1['Chain #'] = [i+1]
                 df1['SSNs'] = [aux1]
                 df1['Possibilities'] = aux2[j]
-                df1['Probabilities'] = aux3[j]
-                df1['Discarded'] = [aux4]
+                df1['Mean prob'] = aux3[j]
+                df1['Lowest prob'] = aux4[j]
+                df1['Discarded'] = [aux5]
                 chains_probs = pd.concat([chains_probs, df1])
                 aux2.pop(0)
                 aux3.pop(0)
+                aux4.pop(0)
             else:
                 df2['Possibilities'] = aux2
-                df2['Probabilities'] = aux3
+                df2['Mean prob'] = aux3
+                df2['Lowest prob'] = aux4
                 chains_probs = pd.concat([chains_probs, df2])
 
     # Formatting
@@ -509,14 +532,13 @@ if sys.argv[-1] == 'chains.txt':
     workbook = writer.book
     worksheet = writer.sheets['Sheet1']
     format1 = workbook.add_format({'num_format': '0.00'})
-    worksheet.set_column('D:D', None, format1)
+    worksheet.set_column('D:E', None, format1)
 
     # Auto-adjust column widths in excel file
     for column in chains_probs:
         column_width = max(chains_probs[column].astype(str).map(len).max(), len(column))
         col_idx = chains_probs.columns.get_loc(column)
         writer.sheets['Sheet1'].set_column(col_idx, col_idx, column_width)
-
     writer.save()
 
 # ================================= Plot ================================== #
@@ -533,6 +555,7 @@ for i in reversed(range(0, Probabilities.shape[1])):
 x_vals = []
 y_vals = []
 p_vals = []
+
 
 for i in y_pos:
     for j in x_pos:
@@ -551,7 +574,7 @@ h = sns.relplot(x="Label",
                 y="Residue",
                 hue="Label",
                 size="Probability",
-                sizes=(40, 300), alpha=.5, palette=palette, data=plot_data, aspect=0.4)
+                sizes=(40, 300), alpha=.5, palette=palette, data=plot_data, aspect=0.3)
 
 h.ax.margins(x=0.05, y=0.02)
 h.despine(top=False, right=False)
@@ -561,7 +584,7 @@ plt.xlabel("LDA classification", size=20)
 plt.xticks(x_pos, x_labels, fontsize=10, rotation=60)
 plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
 plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
-sns.move_legend(h, "upper right", bbox_to_anchor=(0.72, 0.8))
+sns.move_legend(h, "upper right", bbox_to_anchor=(0.65, 0.8))
 for t, l in zip(h._legend.texts, ['Labels']+legend_labels):
     t.set_text(l)
 
