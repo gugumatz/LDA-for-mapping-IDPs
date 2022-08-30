@@ -11,14 +11,11 @@ import itertools
 from itertools import compress
 import re
 
-import matplotlib.pyplot as pyplot
-from collections import Counter
-
 # ================ LDA method for residue mapping in IDPs ================= #
 
 # Read test data
 try:
-    test_data = pd.read_excel(sys.argv[1])
+    test_data = pd.read_excel(sys.argv[1], engine='openpyxl')
 except 'FileNotFoundError':
     test_data = pd.read_excel(sys.argv[1], engine="odf")
 
