@@ -14,10 +14,7 @@ import re
 # ================ LDA method for residue mapping in IDPs ================= #
 
 # Read test data
-try:
-    test_data = pd.read_excel(sys.argv[1], engine='openpyxl')
-except 'FileNotFoundError':
-    test_data = pd.read_excel(sys.argv[1], engine="odf")
+test_data = pd.read_excel(sys.argv[1])
 
 # Read fasta file
 with open(sys.argv[2], 'r') as f:
