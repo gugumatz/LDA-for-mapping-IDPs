@@ -169,17 +169,21 @@ if np.logical_and('GLY' in AATs_fasta, np.logical_or('HB' in header, 'CB' in hea
     miss_res = miss_res + 1
 
 # Separate PRO residues in the training set, if there are PRO in the test protein and H or N are input CSs
-if np.logical_and('PRO' in AATs_fasta, np.logical_or('H' in header, 'N' in header)):
+if np.logical_and('PRO' in AATs_fasta, 'H' in header):
     idxs_pro = (train_classes == 'PRO')
-    data_pro = train_set.loc[idxs_pro, [x for x in header if x not in ['H', 'N']]]
+    data_pro = train_set.loc[idxs_pro, [x for x in header if x not in ['H']]]
     pro_classes = train_classes.loc[idxs_pro]
     train_set = train_set.loc[np.invert(idxs_pro), :]
     train_classes = train_classes.loc[np.invert(idxs_pro)]
 
     # Discard entries missing CSs
     idxs = np.invert(data_pro.isnull().any(axis=1))
-    pro_classes = pro_classes.loc[idxs]
-    train_pro = data_pro.loc[idxs, :]
+    if not any(idxs):
+        pro_classes = pro_classes[~idxs]
+        train_pro = data_pro.loc[~idxs, :]
+    else:
+        pro_classes = pro_classes[idxs]
+        train_pro = data_pro.loc[idxs, :]
     train_pro = train_pro.to_numpy()
     miss_res = miss_res + 1
 
@@ -199,7 +203,8 @@ test_classes_all = test_classes[~idxs_missing]
 Probabilities = np.ndarray(shape=(len(test_set), len(fasta_set)-miss_res))  # Matrix of AAT probabilities
 Mdl = LinearDiscriminantAnalysis()                                          # Classification model
 Mdl.fit(train_set_all, train_classes_all)                                   # Train the model
-Probabilities[~idxs_missing] = Mdl.predict_proba(test_set_all)
+if any(~idxs_missing):
+    Probabilities[~idxs_missing] = Mdl.predict_proba(test_set_all)
 
 if miss_res == 2:
     Probabilities = np.c_[Probabilities[:, :Gidx], np.zeros((len(test_set), 1)), Probabilities[:, Gidx:Pidx-1],
@@ -207,7 +212,7 @@ if miss_res == 2:
 elif miss_res == 1:
     if np.logical_and('GLY' in AATs_fasta, np.logical_or('HB' in header, 'CB' in header)):
         Probabilities = np.c_[Probabilities[:, :Gidx], np.zeros((len(test_set), 1)), Probabilities[:, Gidx:]]
-    elif np.logical_and('PRO' in AATs_fasta, np.logical_or('H' in header, 'N' in header)):
+    elif np.logical_and('PRO' in AATs_fasta, 'H' in header):
         Probabilities = np.c_[Probabilities[:, :Pidx], np.zeros((len(test_set), 1)), Probabilities[:, Pidx:]]
 
 # ================== Classify test set with missing CSs =================== #
@@ -223,11 +228,6 @@ if 'CB' in header:
 ord_pro = []
 if 'H' in header:
     ord_pro.append(header.index('H'))
-if 'N' in header:
-    ord_pro.append(header.index('N'))
-
-HB_CB_set = {"HB", "CB"}
-H_N_set = {"H", "N"}
 
 header_cols = list(range(0, len(header)))
 num_missing = [i for i, x in enumerate(idxs_missing) if x]
@@ -242,8 +242,8 @@ for i in num_missing:
         Probabilities[i, :] = np.zeros(Probabilities.shape[1])
         continue
 
-    # Classify residues missing all HB, CB, H and N
-    elif (HB_CB_set | H_N_set).issubset(CSs):
+    # Classify residues missing all HB, CB and H
+    elif {"HB", "H"}.issubset(CSs) or {'CB', "H"}.issubset(CSs) or {"HB", "CB", "H"}.issubset(CSs):
         # If the test protein has both GLY and PRO in its primary sequence
         if all(x in AATs_fasta for x in {'GLY', 'PRO'}):
             cols1 = [x for x in header_cols if x not in ord_gly]
@@ -299,7 +299,7 @@ for i in num_missing:
             Probabilities[i, :] = Probs_aux
 
     # Classify residues missing HB and CB
-    elif HB_CB_set.issubset(CSs):
+    elif {"HB"}.issubset(CSs) or {"CB"}.issubset(CSs):
         # If the test protein has GLY in its primary sequence
         if 'GLY' in AATs_fasta:
             cols = [x for x in header_cols if x not in ord_gly]
@@ -312,7 +312,7 @@ for i in num_missing:
             observation = test_set[i, ~comb].reshape(1, -1)
             Probs_aux = Mdl_gly.predict_proba(observation)
             # If the test protein also has PRO in its primary sequence
-            if np.logical_and('PRO' in AATs_fasta, np.logical_or('H' in header, 'N' in header)):
+            if np.logical_and('PRO' in AATs_fasta, 'H' in header):
                 Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
             Probabilities[i, :] = Probs_aux
 
@@ -331,7 +331,7 @@ for i in num_missing:
             Probabilities[i, :] = Probs_aux
 
     # Classify residues missing H and N
-    elif H_N_set.issubset(CSs):
+    elif {"H"}.issubset(CSs):
         # If the test protein has PRO in its primary sequence
         if 'PRO' in AATs_fasta:
             cols = [x for x in header_cols if x not in ord_pro]
@@ -358,7 +358,7 @@ for i in num_missing:
             observation = test_set[i, ~comb].reshape(1, -1)
             Probs_aux = Mdl.predict_proba(observation)
             # If it has GLY in its primary sequence
-            if np.logical_and('PRO' in AATs_fasta, np.logical_or('H' in header, 'N' in header)):
+            if np.logical_and('PRO' in AATs_fasta, 'H' in header):
                 Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
             Probabilities[i, :] = Probs_aux
 
@@ -537,20 +537,21 @@ if sys.argv[-1] == 'chains.txt':
 
 # ================================= Plot ================================== #
 
+# Legends and labels
 x_labels = list(np.unique(AATs_fasta))
 x_pos = list(range(0, len(x_labels)))
 y_pos = list(range(0, len(test_set)))
 legend_labels = x_labels.copy()
 
+# Remove extra legends
 for i in reversed(range(0, Probabilities.shape[1])):
     if (Probabilities[:, i] == 0).all():
         legend_labels.pop(i)
 
+# Create lists for plotting
 x_vals = []
 y_vals = []
 p_vals = []
-
-
 for i in y_pos:
     for j in x_pos:
         if Probabilities[i, j] != 0:
@@ -558,18 +559,27 @@ for i in y_pos:
             y_vals.append(y_pos[i])
             p_vals.append(Probabilities[i, j])
 
+# Create Data Frame using lists
 plot_data = pd.DataFrame(columns=['label', 'residue', 'probability'])
 plot_data['Label'] = x_vals
 plot_data['Residue'] = y_vals
 plot_data['Probability'] = p_vals
 
-palette = sns.color_palette(cc.glasbey, n_colors=len(legend_labels))
-h = sns.relplot(x="Label",
-                y="Residue",
-                hue="Label",
-                size="Probability",
-                sizes=(40, 300), alpha=.5, palette=palette, data=plot_data, aspect=0.3)
+# Create stable color palette (always same colors for each AAT)
+dict_col = {'ALA': 0, 'ARG': 1, 'ASN': 2, 'ASP': 3, 'CYS': 4, 'GLN': 5, 'GLU': 6, 'GLY': 7,
+            'HIS': 8, 'ILE': 9, 'LEU': 10, 'LYS': 11, 'MET': 12, 'PHE': 13, 'PRO': 14, 'PYL': 15,
+            'SER': 16, 'SEC': 17, 'THR': 18, 'TRP': 19, 'TYR': 20, 'VAL': 21}
+palette = sns.color_palette(cc.glasbey, n_colors=22)
+col_nums = [dict_col[x] for x in legend_labels]
+col_list = []
+for i in col_nums:
+    col_list.append(palette[i])
 
+# Create figure
+h = sns.relplot(x="Label", y="Residue", hue="Label", size="Probability",
+                sizes=(40, 300), alpha=.5, palette=col_list, data=plot_data, aspect=0.3)
+
+# Formatting and save
 h.ax.margins(x=0.05, y=0.02)
 h.despine(top=False, right=False)
 plt.ylabel("Spin system", size=20)
@@ -581,7 +591,6 @@ plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
 sns.move_legend(h, "upper right", bbox_to_anchor=(0.65, 0.8))
 for t, l in zip(h._legend.texts, ['Labels']+legend_labels):
     t.set_text(l)
-
 h.fig.set_dpi(100)
 h.fig.set_figheight(15)
 h.fig.set_figwidth(25)
