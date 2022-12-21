@@ -14,7 +14,7 @@ import re
 # ================ LDA method for residue mapping in IDPs ================= #
 
 # Read test data
-test_data = pd.read_excel(sys.argv[1])
+test_data = pd.read_excel(sys.argv[1], engine='openpyxl')
 
 # Read fasta file
 with open(sys.argv[2], 'r') as f:
@@ -53,12 +53,15 @@ for k, l in enumerate(scanlist):
 
     if len(spectral_peaks) > 0:
         L = []
-        for x in spectral_peaks[0]['_Atom_chem_shift']:
-            L.append([x[5], x[6], x[7], x[10]])
+        # print(spectral_peaks[0][1])
+        if '_Atom_chem_shift.Entity_assembly_asym_ID' in spectral_peaks[0][1]:
+            for x in spectral_peaks[0]['_Atom_chem_shift']:
+                L.append([x[6], x[7], x[8], x[11]])
+        else:
+            for x in spectral_peaks[0]['_Atom_chem_shift']:
+                L.append([x[5], x[6], x[7], x[10]])
         W[k] = L
-wz = W[0][0][0]
 
-Seq = {}
 check = ['ID', 'numb', 'amino', 'protein', 'H', 'HB', 'HB1', 'HB2', 'HB3', 'CA', 'CB', 'C', 'CO', 'N']
 indexTB = []
 
@@ -73,7 +76,6 @@ TableB = pd.DataFrame(index=indexTB, columns=check)
 
 for key in W:
     for k in W[key]:
-        print(k, end='\r')
         idR = k[1] + k[0] + '_' + str(scanlist[key])
         TableB.at[idR, 'ID'] = k[1] + k[0]
         TableB.at[idR, 'numb'] = int(k[0])
