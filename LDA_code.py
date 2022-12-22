@@ -53,13 +53,13 @@ for k, l in enumerate(scanlist):
 
     if len(spectral_peaks) > 0:
         L = []
-        # print(spectral_peaks[0][1])
-        if '_Atom_chem_shift.Entity_assembly_asym_ID' in spectral_peaks[0][1]:
-            for x in spectral_peaks[0]['_Atom_chem_shift']:
-                L.append([x[6], x[7], x[8], x[11]])
-        else:
-            for x in spectral_peaks[0]['_Atom_chem_shift']:
-                L.append([x[5], x[6], x[7], x[10]])
+
+        for w, x, y, z in zip(spectral_peaks[0]['_Atom_chem_shift.Seq_ID'],
+                              spectral_peaks[0]['_Atom_chem_shift.Comp_ID'],
+                              spectral_peaks[0]['_Atom_chem_shift.Atom_ID'],
+                              spectral_peaks[0]['_Atom_chem_shift.Val']):
+            L.append([w, x, y, z])
+
         W[k] = L
 
 check = ['ID', 'numb', 'amino', 'protein', 'H', 'HB', 'HB1', 'HB2', 'HB3', 'CA', 'CB', 'C', 'CO', 'N']
