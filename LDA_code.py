@@ -1,17 +1,15 @@
+import re
 import sys
-import time
 import pynmrstar
 import numpy as np
 import pandas as pd
+from itertools import compress
+from sklearn.base import clone
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+import itertools
 import matplotlib.pyplot as plt
 import seaborn as sns
 import colorcet as cc
-import itertools
-from itertools import compress
-import re
-
-# ================ LDA method for residue mapping in IDPs ================= #
 
 # Read test data
 test_data = pd.read_excel(sys.argv[1], engine='openpyxl')
@@ -35,11 +33,15 @@ if sys.argv[-1] == 'chains.txt':
     while chains[-1] == ['']:
         chains.pop(-1)
 
-# ====== Automatic retrieval of training data from the BMRB database ====== #
+# ======= Read NMR data of training IDPs from downloaded BMRB files ======= #
 
-W = {}
+names = ['H', 'HB', 'HB1', 'HB2', 'HB3', 'CA', 'CB', 'C', 'CO', 'N', 'amino', 'protein']
+TableB = pd.DataFrame(columns=names)
+
 for k, l in enumerate(scanlist):
     waiter = True
+    sys.stdout.write('\rScanning data of training proteins: %i/%i' % (k + 1, len(scanlist)))
+    sys.stdout.flush()
 
     while waiter:
         try:
@@ -47,353 +49,201 @@ for k, l in enumerate(scanlist):
             waiter = False
         except (ConnectionError, OSError) as e:
             print('connection error on: ' + str(l))
-            time.sleep(10)
+            time.sleep(2)
             waiter = True
     spectral_peaks = ent.get_saveframes_by_category('assigned_chemical_shifts')
 
     if len(spectral_peaks) > 0:
-        L = []
+        TableC = pd.DataFrame(columns=names)
+        w = spectral_peaks[0]['_Atom_chem_shift.Seq_ID']
+        x = spectral_peaks[0]['_Atom_chem_shift.Comp_ID']
+        y = spectral_peaks[0]['_Atom_chem_shift.Atom_ID']
+        z = spectral_peaks[0]['_Atom_chem_shift.Val']
+        wp = w[0]
+        n = 0
 
-        for w, x, y, z in zip(spectral_peaks[0]['_Atom_chem_shift.Seq_ID'],
-                              spectral_peaks[0]['_Atom_chem_shift.Comp_ID'],
-                              spectral_peaks[0]['_Atom_chem_shift.Atom_ID'],
-                              spectral_peaks[0]['_Atom_chem_shift.Val']):
-            L.append([w, x, y, z])
+        for i, j in enumerate(w):
+            if j != wp:
+                n = n + 1
+                wp = w[i]
+            TableC.at[n, 'amino'] = x[i]
+            TableC.at[n, 'protein'] = l
+            TableC.at[n, y[i]] = float(z[i])
+        TableB = pd.concat([TableB, TableC], ignore_index=True)
 
-        W[k] = L
-
-check = ['ID', 'numb', 'amino', 'protein', 'H', 'HB', 'HB1', 'HB2', 'HB3', 'CA', 'CB', 'C', 'CO', 'N']
-indexTB = []
-
-for key in W:
-    wz = 'rrrrrrr'
-    for k in W[key]:
-        if k[0] != wz:
-            idR = k[1] + k[0] + '_' + str(scanlist[key])
-            indexTB.append(idR)
-            wz = k[0]
-TableB = pd.DataFrame(index=indexTB, columns=check)
-
-for key in W:
-    for k in W[key]:
-        idR = k[1] + k[0] + '_' + str(scanlist[key])
-        TableB.at[idR, 'ID'] = k[1] + k[0]
-        TableB.at[idR, 'numb'] = int(k[0])
-        TableB.at[idR, 'amino'] = (k[1])
-        TableB.at[idR, k[2]] = float(k[3])
-        TableB.at[idR, 'protein'] = scanlist[key]
-
-TableA = pd.DataFrame(index=indexTB, columns=['ID', 'HA', 'HB', 'CA', 'CB', 'C']).astype('float')
+print('\n')
+TableA = pd.DataFrame(columns=['HN', 'N', 'CO', 'HA', 'HB', 'CA', 'CB', 'amino', 'protein']).astype('float')
 try:
     TableA['HB'] = TableB.loc[:, "HB":"HB3"].astype(float).mean(axis=1).astype(float)
 except 'KeyError':
     TableA['HB'] = TableB.loc[:, "HB"].astype(float)
-TableA['H'] = TableB.loc[:, "H"].astype(float)
+TableA['HN'] = TableB.loc[:, "H"].astype(float)
 TableA['CA'] = TableB.loc[:, "CA"].astype(float)
 TableA['CB'] = TableB.loc[:, "CB"].astype(float)
 TableA['N'] = TableB.loc[:, "N"].astype(float)
-TableA['C'] = TableB.loc[:, "C"].astype(float)
+TableA['CO'] = TableB.loc[:, "C"].astype(float)
 
 try:
     TableA['HA'] = TableB.loc[:, ["HA", "HA2", "HA3"]].astype(float).mean(axis=1)
 except 'KeyError':
     TableA['HA'] = TableB.loc[:, "HA"].astype(float)
 TableA['amino'] = TableB['amino']
-TableA['ID'] = TableB['ID']
 TableA['protein'] = TableB['protein']
 
 # ============================ Pre-processing ============================= #
 
+# Dictionary: from 1 char codes to 3 chars codes
 AAT_dict = {'A': 'ALA', 'R': 'ARG', 'N': 'ASN', 'D': 'ASP', 'C': 'CYS', 'Q': 'GLN',
             'E': 'GLU', 'G': 'GLY', 'H': 'HIS', 'I': 'ILE', 'L': 'LEU', 'K': 'LYS',
-            'M': 'MET', 'F': 'PHE', 'P': 'PRO', 'O': 'PYL', 'S': 'SER', 'U': 'SEC',
-            'T': 'THR', 'W': 'TRP', 'Y': 'TYR', 'V': 'VAL'}
+            'M': 'MET', 'F': 'PHE', 'P': 'PRO', 'S': 'SER', 'T': 'THR', 'W': 'TRP',
+            'Y': 'TYR', 'V': 'VAL'}
 
-# Get Amino Acid Types in test protein from fasta file
-fasta_set = set(fasta)
-AATs_fasta = [AAT_dict[x] for x in fasta_set]
-AATs_fasta.sort()
-
-# Get column numbers of GLY and PRO
-if 'GLY' in AATs_fasta:
-    Gidx = AATs_fasta.index('GLY')
-if 'PRO' in AATs_fasta:
-    Pidx = AATs_fasta.index('PRO')
+# Get all Amino Acid Types in test protein from seq file
+AATs_unique = list(set([AAT_dict[x] for x in set(fasta)]))
+AATs_unique.sort()
 
 # AATs not in test protein
-AATs_missing = list(set(AAT_dict.values())-set(AATs_fasta))
+AATs_missing = list(set(AAT_dict.values()) - set(AATs_unique))
 
 # Test data
 SSN = test_data.iloc[:len(test_data), 0]    # Spin Systems Numbers
-test_data = test_data.drop(['SSN'], axis=1)
-header = test_data.columns.tolist()
+test_set = test_data.drop(['SSN'], axis=1)
+nuclei = test_set.columns.tolist()
 
 # Sort training data
-train_data = pd.DataFrame(TableA, columns=header+['amino'])
-train_data = train_data.sort_values(['amino'], ascending=True)
+train_data = pd.DataFrame(TableA, columns=nuclei+['amino', 'protein'])
+train_data = train_data.sort_values(['protein', 'amino'], ascending=True)
 
 # Pareto scaling of train and test data simultaneously
-train_data = pd.concat([train_data, test_data], ignore_index=True)
-for k in train_data:
+for_scaling = pd.concat([test_set, train_data], ignore_index=True)
+for k in for_scaling:
     if k == 'amino':
         break
-    train_data[k] = (train_data[k] - np.mean(train_data[k])) / (np.sqrt(np.std(train_data[k])))
+    for_scaling[k] = (for_scaling[k] - np.mean(for_scaling[k])) / (np.sqrt(np.std(for_scaling[k])))
 
-# ============================= Organize Data ============================= #
-
-# Separate train and test sets
-train_set = train_data.iloc[:len(TableA), :len(train_data.columns)-1]
-train_classes = train_data.iloc[:len(TableA), len(train_data.columns)-1]
-test_set = train_data.iloc[len(TableA):, :len(train_data.columns)-1]
-test_classes = train_data.iloc[len(TableA):, len(train_data.columns)-1]
-test_set = test_set.to_numpy()
-miss_res = 0
+test_set = for_scaling.iloc[:len(test_data), :]
+for_scaling = for_scaling.iloc[len(test_data):, :]
 
 # Eliminate from training set residues of AATs not present in test protein
 for AAT in AATs_missing:
-    idxs = (train_classes == AAT)
-    train_set = train_set.loc[np.invert(idxs), :]
-    train_classes = train_classes.loc[np.invert(idxs)]
+    for_scaling = for_scaling.drop(for_scaling[for_scaling["amino"] == AAT].index)
 
-# Separate GLY residues in the training set, if there are GLY in the test protein and HB or CB are input CSs
-if np.logical_and('GLY' in AATs_fasta, np.logical_or('HB' in header, 'CB' in header)):
-    idxs_gly = (train_classes == 'GLY')
-    data_gly = train_set.loc[idxs_gly, [x for x in header if x not in ['HB', 'CB']]]
-    gly_classes = train_classes.loc[idxs_gly]
-    train_set = train_set.loc[np.invert(idxs_gly), :]
-    train_classes = train_classes.loc[np.invert(idxs_gly)]
+classes = for_scaling["amino"].copy()
+train_set = for_scaling.drop(["protein"], axis=1)
 
-    # Discard entries missing CSs
-    idxs = np.invert(data_gly.isnull().any(axis=1))
-    gly_classes = gly_classes.loc[idxs]
-    train_gly = data_gly.loc[idxs, :]
-    train_gly = train_gly.to_numpy()
-    miss_res = miss_res + 1
+# ============================ Classification ============================= #
 
-# Separate PRO residues in the training set, if there are PRO in the test protein and H or N are input CSs
-if np.logical_and('PRO' in AATs_fasta, 'H' in header):
-    idxs_pro = (train_classes == 'PRO')
-    data_pro = train_set.loc[idxs_pro, [x for x in header if x not in ['H']]]
-    pro_classes = train_classes.loc[idxs_pro]
-    train_set = train_set.loc[np.invert(idxs_pro), :]
-    train_classes = train_classes.loc[np.invert(idxs_pro)]
+# Get column positions of GLY and PRO
+if 'GLY' in AATs_unique:
+    G_idx = AATs_unique.index('GLY')
+if 'PRO' in AATs_unique:
+    P_idx = AATs_unique.index('PRO')
 
-    # Discard entries missing CSs
-    idxs = np.invert(data_pro.isnull().any(axis=1))
-    if not any(idxs):
-        pro_classes = pro_classes[~idxs]
-        train_pro = data_pro.loc[~idxs, :]
-    else:
-        pro_classes = pro_classes[idxs]
-        train_pro = data_pro.loc[idxs, :]
-    train_pro = train_pro.to_numpy()
-    miss_res = miss_res + 1
+# Initialization
+probs = np.ndarray(shape=(len(test_set), len(AATs_unique)))
+Mdl = LinearDiscriminantAnalysis()
+test_nan = np.array(test_set.isnull())
+combs_nan = np.unique(test_nan, axis=0)
+nuclei_ix = list(range(0, len(nuclei)))
 
-# Discard entries missing CSs in the main training set
-idxs = np.invert(train_set.isnull().any(axis=1))
-train_classes_all = train_classes.loc[idxs]
-train_set_all = train_set.loc[idxs, :]
-train_set_all = train_set_all.to_numpy()
+# Loop over combinations
+for i in combs_nan:
+    idxs_nan = np.all(test_nan == i, axis=1)
+    nuclei_meas = list(compress(nuclei, ~i))
+    test_missing_comb = test_set[idxs_nan][nuclei_meas]
+    print('Classifying residues with CSs: ', nuclei_meas)
 
-# Separate test set entries with all CSs from those missing CSs
-idxs_missing = np.isnan(test_set).any(axis=1)
-test_set_all = test_set[~idxs_missing, :]
-test_classes_all = test_classes[~idxs_missing]
-
-# ==================== Classify test set with all CSs ===================== #
-
-Probabilities = np.ndarray(shape=(len(test_set), len(fasta_set)-miss_res))  # Matrix of AAT probabilities
-Mdl = LinearDiscriminantAnalysis()                                          # Classification model
-Mdl.fit(train_set_all, train_classes_all)                                   # Train the model
-if any(~idxs_missing):
-    Probabilities[~idxs_missing] = Mdl.predict_proba(test_set_all)
-
-if miss_res == 2:
-    Probabilities = np.c_[Probabilities[:, :Gidx], np.zeros((len(test_set), 1)), Probabilities[:, Gidx:Pidx-1],
-                          np.zeros((len(test_set), 1)), Probabilities[:, Pidx-1:]]
-elif miss_res == 1:
-    if np.logical_and('GLY' in AATs_fasta, np.logical_or('HB' in header, 'CB' in header)):
-        Probabilities = np.c_[Probabilities[:, :Gidx], np.zeros((len(test_set), 1)), Probabilities[:, Gidx:]]
-    elif np.logical_and('PRO' in AATs_fasta, 'H' in header):
-        Probabilities = np.c_[Probabilities[:, :Pidx], np.zeros((len(test_set), 1)), Probabilities[:, Pidx:]]
-
-# ================== Classify test set with missing CSs =================== #
-
-# Find index of HB and CB columns
-ord_gly = []
-if 'HB' in header:
-    ord_gly.append(header.index('HB'))
-if 'CB' in header:
-    ord_gly.append(header.index('CB'))
-
-# Find index of H and N columns
-ord_pro = []
-if 'H' in header:
-    ord_pro.append(header.index('H'))
-
-header_cols = list(range(0, len(header)))
-num_missing = [i for i, x in enumerate(idxs_missing) if x]
-
-# Loop across residues with missing CHs
-for i in num_missing:
-    comb = np.isnan(test_set[i, :])
-    CSs = set(compress(header, comb))   # CSs missing in the current residue
-
-    # Classify empty entries
-    if np.all(comb):
-        Probabilities[i, :] = np.zeros(Probabilities.shape[1])
+    # Classify residues with all NaN values
+    if np.all(i):
+        a = np.empty((idxs_nan.sum(), probs.shape[1]))
+        a[:] = np.nan
+        probs[idxs_nan, :] = a
         continue
 
-    # Classify residues missing all HB, CB and H
-    elif {"HB", "H"}.issubset(CSs) or {'CB', "H"}.issubset(CSs) or {"HB", "CB", "H"}.issubset(CSs):
-        # If the test protein has both GLY and PRO in its primary sequence
-        if all(x in AATs_fasta for x in {'GLY', 'PRO'}):
-            cols1 = [x for x in header_cols if x not in ord_gly]
-            cols2 = [x for x in header_cols if x not in ord_pro]
-            comb_aux1 = comb[cols1]
-            comb_aux2 = comb[cols2]
-            train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux1], train_pro[:, ~comb_aux2]))
-            train_classes = np.concatenate((train_classes_all, gly_classes, pro_classes))
+    # Classify residues that could be GLY or PRO
+    elif {"HB", "CB", "HN"}.isdisjoint(nuclei_meas) and all(x in AATs_unique for x in {'GLY', 'PRO'}):
+        train_set_aux = train_set[nuclei_meas]
+        idxs = train_set_aux.isnull().any(axis=1)
+        train_set_aux = train_set_aux[~idxs]
+        labels = classes[~idxs]
 
-            Mdl_both = LinearDiscriminantAnalysis()
-            Mdl_both.fit(train_set, train_classes)
-            observation = test_set[i, ~comb].reshape(1, -1)
-            Probs_aux = Mdl_both.predict_proba(observation)
-            Probabilities[i, :] = Probs_aux
+        Mdl_clone = clone(Mdl)
+        Mdl_clone.fit(train_set_aux, labels)
+        probs[idxs_nan, :] = Mdl_clone.predict_proba(test_missing_comb)
 
-        # If the test protein only has GLY in its primary sequence
-        elif 'GLY' in AATs_fasta:
-            cols1 = [x for x in header_cols if x not in ord_gly]
-            comb_aux1 = comb[cols1]
-            train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux1]))
-            train_classes = np.concatenate((train_classes_all, gly_classes))
+    # Classify residues that could be GLY
+    elif {"HB", "CB"}.isdisjoint(set(nuclei_meas)) and 'GLY' in AATs_unique:
+        train_set_aux = train_set[train_set["amino"] != 'PRO']
+        labels = classes[classes != 'PRO']
+        train_set_aux = train_set_aux[nuclei_meas]
+        idxs = train_set_aux.isnull().any(axis=1)
+        train_set_aux = train_set_aux[~idxs]
+        labels = labels[~idxs]
 
-            Mdl = LinearDiscriminantAnalysis()
-            Mdl.fit(train_set, train_classes)
-            observation = test_set[i, ~comb].reshape(1, -1)
-            Probs_aux = Mdl.predict_proba(observation)
-            Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
-            Probabilities[i, :] = Probs_aux
-
-        # If the test protein only has PRO in its primary sequence
-        elif 'PRO' in AATs_fasta:
-            cols2 = [x for x in header_cols if x not in ord_pro]
-            comb_aux2 = comb[cols2]
-            train_set = np.concatenate((train_set_all[:, ~comb], train_pro[:, ~comb_aux2]))
-            train_classes = np.concatenate((train_classes_all, pro_classes))
-
-            Mdl = LinearDiscriminantAnalysis()
-            Mdl.fit(train_set, train_classes)
-            observation = test_set[i, ~comb].reshape(1, -1)
-            Probs_aux = Mdl.predict_proba(observation)
-            Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
-            Probabilities[i, :] = Probs_aux
-
-        # If the residue is missing all HB, CB, H and N, but the test protein doesn't have GLY nor PRO
+        Mdl_clone = clone(Mdl)
+        Mdl_clone.fit(train_set_aux, labels)
+        probs_aux = Mdl_clone.predict_proba(test_missing_comb)
+        if 'PRO' in AATs_unique:
+            probs[idxs_nan, :] = np.c_[probs_aux[:, :P_idx], np.zeros((idxs_nan.sum(), 1)), probs_aux[:, P_idx:]]
         else:
-            train_set = train_set_all[:, ~comb]
-            train_classes = train_classes_all
+            probs[idxs_nan, :] = probs_aux
 
-            Mdl = LinearDiscriminantAnalysis()
-            Mdl.fit(train_set, train_classes)
-            observation = test_set[i, ~comb].reshape(1, -1)
-            Probs_aux = Mdl.predict_proba(observation)
-            Probabilities[i, :] = Probs_aux
+    # Classify residues that could be PRO
+    elif {"HN"}.isdisjoint(set(nuclei_meas)) and 'PRO' in AATs_unique:
+        train_set_aux = train_set[train_set["amino"] != 'GLY']
+        labels = classes[classes != 'GLY']
+        train_set_aux = train_set_aux[nuclei_meas]
+        idxs = train_set_aux.isnull().any(axis=1)
+        train_set_aux = train_set_aux[~idxs]
+        labels = labels[~idxs]
 
-    # Classify residues missing HB and CB
-    elif {"HB"}.issubset(CSs) or {"CB"}.issubset(CSs):
-        # If the test protein has GLY in its primary sequence
-        if 'GLY' in AATs_fasta:
-            cols = [x for x in header_cols if x not in ord_gly]
-            comb_aux = comb[cols]
-            train_set = np.concatenate((train_set_all[:, ~comb], train_gly[:, ~comb_aux]))
-            train_classes = np.concatenate((train_classes_all, gly_classes))
-
-            Mdl_gly = LinearDiscriminantAnalysis()
-            Mdl_gly.fit(train_set, train_classes)
-            observation = test_set[i, ~comb].reshape(1, -1)
-            Probs_aux = Mdl_gly.predict_proba(observation)
-            # If the test protein also has PRO in its primary sequence
-            if np.logical_and('PRO' in AATs_fasta, 'H' in header):
-                Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
-            Probabilities[i, :] = Probs_aux
-
-        # If the residue is missing HB and CB, but the test protein doesn't have GLY in its primary sequence
+        Mdl_clone = clone(Mdl)
+        Mdl_clone.fit(train_set_aux, labels)
+        probs_aux = Mdl_clone.predict_proba(test_missing_comb)
+        if 'GLY' in AATs_unique:
+            probs[idxs_nan, :] = np.c_[probs_aux[:, :G_idx], np.zeros((idxs_nan.sum(), 1)), probs_aux[:, G_idx:]]
         else:
-            train_set = train_set_all[:, ~comb]
-            train_classes = train_classes_all
+            probs[idxs_nan, :] = probs_aux
 
-            Mdl = LinearDiscriminantAnalysis()
-            Mdl.fit(train_set, train_classes)
-            observation = test_set[i, ~comb].reshape(1, -1)
-            Probs_aux = Mdl.predict_proba(observation)
-            # If the test protein has PRO in its primary sequence
-            if np.logical_and('GLY' in AATs_fasta, np.logical_or('HB' in header, 'CB' in header)):
-                Probs_aux = np.concatenate((Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]))
-            Probabilities[i, :] = Probs_aux
-
-    # Classify residues missing H and N
-    elif {"H"}.issubset(CSs):
-        # If the test protein has PRO in its primary sequence
-        if 'PRO' in AATs_fasta:
-            cols = [x for x in header_cols if x not in ord_pro]
-            comb_aux = comb[cols]
-            train_set = np.concatenate((train_set_all[:, ~comb], train_pro[:, ~comb_aux]))
-            train_classes = np.concatenate((train_classes_all, pro_classes))
-
-            Mdl_pro = LinearDiscriminantAnalysis()
-            Mdl_pro.fit(train_set, train_classes)
-            observation = test_set[i, ~comb].reshape(1, -1)
-            Probs_aux = Mdl_pro.predict_proba(observation)
-            # If the test protein also has GLY in its primary sequence
-            if np.logical_and('GLY' in AATs_fasta, np.logical_or('HB' in header, 'CB' in header)):
-                Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
-            Probabilities[i, :] = Probs_aux
-
-        # If the residue is missing H and N, but the test protein doesn't have PRO in its primary sequence
-        else:
-            train_set = train_set_all[:, ~comb]
-            train_classes = train_classes_all
-
-            Mdl = LinearDiscriminantAnalysis()
-            Mdl.fit(train_set, train_classes)
-            observation = test_set[i, ~comb].reshape(1, -1)
-            Probs_aux = Mdl.predict_proba(observation)
-            # If it has GLY in its primary sequence
-            if np.logical_and('PRO' in AATs_fasta, 'H' in header):
-                Probs_aux = np.concatenate((Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]))
-            Probabilities[i, :] = Probs_aux
-
-    # Classify residues missing any other combination of chemical shifts
+    # Classify other residues
     else:
-        train_set = train_set_all[:, ~comb]
+        train_set_aux = train_set[np.logical_or(train_set["amino"] != 'PRO', train_set["amino"] != 'GLY')]
+        labels = classes[np.logical_or(classes != 'PRO', classes != 'GLY')]
+        train_set_aux = train_set_aux[nuclei_meas]
+        idxs = train_set_aux.isnull().any(axis=1)
+        train_set_aux = train_set_aux[~idxs]
+        labels = labels[~idxs]
 
-        Mdl_miss = LinearDiscriminantAnalysis()
-        Mdl_miss.fit(train_set, train_classes_all)
-        observation = test_set[i, ~comb].reshape(1, -1)
-        Probs_aux = Mdl_miss.predict_proba(observation)
-        if miss_res == 1:
-            if 'GLY' in AATs_fasta:
-                Probs_aux = np.concatenate([Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:]])
-            else:
-                Probs_aux = np.concatenate([Probs_aux[0, :Pidx], np.array([0]), Probs_aux[0, Pidx:]])
-        elif miss_res == 2:
-            Probs_aux = np.concatenate([Probs_aux[0, :Gidx], np.array([0]), Probs_aux[0, Gidx:Pidx-1],
-                                        np.array([0]), Probs_aux[0, Pidx-1:]])
-        Probabilities[i, :] = Probs_aux
+        Mdl_clone = clone(Mdl)
+        Mdl_clone.fit(train_set_aux, labels)
+        probs_aux = Mdl_clone.predict_proba(test_missing_comb)
+        if all(x in AATs_unique for x in {'GLY', 'PRO'}):
+            probs[idxs_nan, :] = np.c_[probs_aux[:, :G_idx], np.zeros((idxs_nan.sum(), 1)),
+            probs_aux[:, G_idx:P_idx - 1], np.zeros((idxs_nan.sum(), 1)), probs_aux[:, P_idx - 1:]]
+        elif 'PRO' in AATs_unique:
+            probs[idxs_nan, :] = np.c_[probs_aux[:, :P_idx], np.zeros((idxs_nan.sum(), 1)), probs_aux[:, P_idx:]]
+        elif 'GLY' in AATs_unique:
+            probs[idxs_nan, :] = np.c_[probs_aux[:, :G_idx], np.zeros((idxs_nan.sum(), 1)), probs_aux[:, G_idx:]]
+        else:
+            probs[idxs_nan, :] = probs_aux
 
 # Set threshold of probabilities (for more clear results)
-for i in range(len(test_set)):
-    comb = np.isnan(test_set[i, :])
-    CSs = set(compress(header, comb))
-    if {'CB'}.issubset(CSs):
-        Probabilities[i, Probabilities[i, :] < 0.05] = 0
+for i in combs_nan:
+    idxs_nan = np.all(test_nan == i, axis=1)
+    nuclei_meas = list(compress(nuclei, ~i))
+    test_missing_comb = test_set[idxs_nan][nuclei_meas]
+    if {'CB'}.issubset(test_missing_comb):
+        probs_aux = probs[idxs_nan, :]
+        probs_aux[probs_aux < 0.05] = 0
+        probs[idxs_nan, :] = probs_aux
     else:
-        Probabilities[i, Probabilities[i, :] < 0.1] = 0
+        probs_aux = probs[idxs_nan, :]
+        probs_aux[probs_aux < 0.1] = 0
+        probs[idxs_nan, :] = probs_aux
 
 # Write probabilities matrix to excel file
-Probs = pd.DataFrame(Probabilities, index=SSN, columns=AATs_fasta)
-Probs.to_excel('Probabilities.xlsx')
+df = pd.DataFrame(probs, index=SSN, columns=AATs_unique)
+df.to_excel('Probabilities.xlsx')
 
 # ========= Discard combinations not present in protein sequence ========== #
 
@@ -411,7 +261,7 @@ if sys.argv[-1] == 'chains.txt':
     # Boolean array from rows of Probabilities array: true = non-zero probability
     non_zero_probs = []
     for i in chains_SSN_indices:
-        aux = Probabilities[i, :] != 0
+        aux = probs[i, :] != 0
         non_zero_probs.append(aux)
 
     # Get probabilities for all possible AATs of each residue in each chain
@@ -423,8 +273,8 @@ if sys.argv[-1] == 'chains.txt':
         aux1 = []
         aux2 = []
         for j in range(aux.shape[0]):
-            aux1.append(list(compress(AATs_fasta, aux[j, :])))
-            aux2.append(list(compress(Probabilities[cSSNid[j], :], aux[j, :])))
+            aux1.append(list(compress(AATs_unique, aux[j, :])))
+            aux2.append(list(compress(probs[cSSNid[j], :], aux[j, :])))
         possible_AATs.append(aux1)
         possible_probs.append(aux2)
 
@@ -540,14 +390,14 @@ if sys.argv[-1] == 'chains.txt':
 # ================================= Plot ================================== #
 
 # Legends and labels
-x_labels = list(np.unique(AATs_fasta))
+x_labels = list(np.unique(AATs_unique))
 x_pos = list(range(0, len(x_labels)))
 y_pos = list(range(0, len(test_set)))
 legend_labels = x_labels.copy()
 
 # Remove extra legends
-for i in reversed(range(0, Probabilities.shape[1])):
-    if (Probabilities[:, i] == 0).all():
+for i in reversed(range(0, probs.shape[1])):
+    if (probs[:, i] == 0).all():
         legend_labels.pop(i)
 
 # Create lists for plotting
@@ -556,10 +406,10 @@ y_vals = []
 p_vals = []
 for i in y_pos:
     for j in x_pos:
-        if Probabilities[i, j] != 0:
+        if probs[i, j] != 0:
             x_vals.append(x_pos[j])
             y_vals.append(y_pos[i])
-            p_vals.append(Probabilities[i, j])
+            p_vals.append(probs[i, j])
 
 # Create Data Frame using lists
 plot_data = pd.DataFrame(columns=['label', 'residue', 'probability'])
@@ -568,10 +418,10 @@ plot_data['Residue'] = y_vals
 plot_data['Probability'] = p_vals
 
 # Create stable color palette (always same colors for each AAT)
-dict_col = {'ALA': 0, 'ARG': 1, 'ASN': 2, 'ASP': 3, 'CYS': 4, 'GLN': 5, 'GLU': 6, 'GLY': 7,
-            'HIS': 8, 'ILE': 9, 'LEU': 10, 'LYS': 11, 'MET': 12, 'PHE': 13, 'PRO': 14, 'PYL': 15,
-            'SER': 16, 'SEC': 17, 'THR': 18, 'TRP': 19, 'TYR': 20, 'VAL': 21}
-palette = sns.color_palette(cc.glasbey, n_colors=22)
+dict_col = {'ALA': 0, 'ARG': 1, 'ASN': 2, 'ASP': 3, 'CYS': 4, 'GLN': 5, 'GLU': 6,
+            'GLY': 7, 'HIS': 8, 'ILE': 9, 'LEU': 10, 'LYS': 11, 'MET': 12, 'PHE': 13,
+            'PRO': 14, 'SER': 15, 'THR': 16, 'TRP': 17, 'TYR': 18, 'VAL': 19}
+palette = sns.color_palette(cc.glasbey, n_colors=20)
 col_nums = [dict_col[x] for x in legend_labels]
 col_list = []
 for i in col_nums:
@@ -590,7 +440,7 @@ plt.xlabel("LDA classification", size=20)
 plt.xticks(x_pos, x_labels, fontsize=10, rotation=60)
 plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
 plt.grid(axis='y', color='k', linestyle=':', linewidth=0.2)
-sns.move_legend(h, "upper right", bbox_to_anchor=(0.65, 0.8))
+sns.move_legend(h, "upper right", bbox_to_anchor=(0.7, 0.8))
 for t, l in zip(h._legend.texts, ['Labels']+legend_labels):
     t.set_text(l)
 h.fig.set_dpi(100)
@@ -598,3 +448,4 @@ h.fig.set_figheight(15)
 h.fig.set_figwidth(25)
 h.savefig('Probabilities.svg', dpi=100)
 plt.show()
+
