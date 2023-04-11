@@ -3,6 +3,7 @@ import sys
 import pynmrstar
 import numpy as np
 import pandas as pd
+from itertools import groupby
 from itertools import compress
 from sklearn.base import clone
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
@@ -12,7 +13,7 @@ import seaborn as sns
 import colorcet as cc
 
 # Read test data
-test_data = pd.read_excel(sys.argv[1], engine='openpyxl')
+test_data = pd.read_excel(sys.argv[1], engine='openpyxl', index_col='SSN')
 
 # Read fasta file
 with open(sys.argv[2], 'r') as f:
@@ -35,7 +36,7 @@ if sys.argv[-1] == 'chains.txt':
 
 # ======= Read NMR data of training IDPs from downloaded BMRB files ======= #
 
-names = ['H', 'HB', 'HB1', 'HB2', 'HB3', 'CA', 'CB', 'C', 'CO', 'N', 'amino', 'protein']
+names = ['H', 'HB', 'HB1', 'HB2', 'HB3', 'CA', 'CB', 'C', 'CO', 'N', 'amino']
 TableB = pd.DataFrame(columns=names)
 
 for k, l in enumerate(scanlist):
@@ -48,7 +49,7 @@ for k, l in enumerate(scanlist):
             ent = pynmrstar.Entry.from_database(l)
             waiter = False
         except (ConnectionError, OSError) as e:
-            print('connection error on: ' + str(l))
+            print('Connection error on: ' + str(l))
             time.sleep(2)
             waiter = True
     spectral_peaks = ent.get_saveframes_by_category('assigned_chemical_shifts')
@@ -67,12 +68,11 @@ for k, l in enumerate(scanlist):
                 n = n + 1
                 wp = w[i]
             TableC.at[n, 'amino'] = x[i]
-            TableC.at[n, 'protein'] = l
             TableC.at[n, y[i]] = float(z[i])
         TableB = pd.concat([TableB, TableC], ignore_index=True)
 
 print('\n')
-TableA = pd.DataFrame(columns=['HN', 'N', 'CO', 'HA', 'HB', 'CA', 'CB', 'amino', 'protein']).astype('float')
+TableA = pd.DataFrame(columns=['amino', 'HN', 'N', 'CO', 'HA', 'HB', 'CA', 'CB']).astype('float')
 try:
     TableA['HB'] = TableB.loc[:, "HB":"HB3"].astype(float).mean(axis=1).astype(float)
 except 'KeyError':
@@ -88,7 +88,6 @@ try:
 except 'KeyError':
     TableA['HA'] = TableB.loc[:, "HA"].astype(float)
 TableA['amino'] = TableB['amino']
-TableA['protein'] = TableB['protein']
 
 # ============================ Pre-processing ============================= #
 
@@ -98,21 +97,23 @@ AAT_dict = {'A': 'ALA', 'R': 'ARG', 'N': 'ASN', 'D': 'ASP', 'C': 'CYS', 'Q': 'GL
             'M': 'MET', 'F': 'PHE', 'P': 'PRO', 'S': 'SER', 'T': 'THR', 'W': 'TRP',
             'Y': 'TYR', 'V': 'VAL'}
 
-# Get all Amino Acid Types in test protein from seq file
+# Get Amino Acid Types in test protein from seq file
 AATs_unique = list(set([AAT_dict[x] for x in set(fasta)]))
 AATs_unique.sort()
 
-# AATs not in test protein
-AATs_missing = list(set(AAT_dict.values()) - set(AATs_unique))
-
 # Test data
-SSN = test_data.iloc[:len(test_data), 0]    # Spin Systems Numbers
-test_set = test_data.drop(['SSN'], axis=1)
+# SSN = test_data.iloc[:len(test_data), 0]
+# test_set = test_data.drop(['SSN'], axis=1)
+test_set = test_data.copy()
 nuclei = test_set.columns.tolist()
 
 # Sort training data
-train_data = pd.DataFrame(TableA, columns=nuclei+['amino', 'protein'])
-train_data = train_data.sort_values(['protein', 'amino'], ascending=True)
+train_data = pd.DataFrame(TableA, columns=nuclei+['amino']).sort_values(['amino'], ascending=True)
+
+# Eliminate from training set residues of AATs not present in test protein
+AATs_missing = list(set(AAT_dict.values()) - set(AATs_unique))
+for AAT in AATs_missing:
+    train_data = train_data.drop(train_data.query('amino==@AAT').index)
 
 # Pareto scaling of train and test data simultaneously
 for_scaling = pd.concat([test_set, train_data], ignore_index=True)
@@ -121,15 +122,10 @@ for k in for_scaling:
         break
     for_scaling[k] = (for_scaling[k] - np.mean(for_scaling[k])) / (np.sqrt(np.std(for_scaling[k])))
 
+# Final train and test sets, and classes for training (labels)
 test_set = for_scaling.iloc[:len(test_data), :]
-for_scaling = for_scaling.iloc[len(test_data):, :]
-
-# Eliminate from training set residues of AATs not present in test protein
-for AAT in AATs_missing:
-    for_scaling = for_scaling.drop(for_scaling[for_scaling["amino"] == AAT].index)
-
-classes = for_scaling["amino"].copy()
-train_set = for_scaling.drop(["protein"], axis=1)
+train_set = for_scaling.iloc[len(test_data):, :]
+classes = train_set["amino"].copy()
 
 # ============================ Classification ============================= #
 
@@ -141,7 +137,7 @@ if 'PRO' in AATs_unique:
 
 # Initialization
 probs = np.ndarray(shape=(len(test_set), len(AATs_unique)))
-Mdl = LinearDiscriminantAnalysis()
+LDA_clf = LinearDiscriminantAnalysis()
 test_nan = np.array(test_set.isnull())
 combs_nan = np.unique(test_nan, axis=0)
 nuclei_ix = list(range(0, len(nuclei)))
@@ -151,7 +147,7 @@ for i in combs_nan:
     idxs_nan = np.all(test_nan == i, axis=1)
     nuclei_meas = list(compress(nuclei, ~i))
     test_missing_comb = test_set[idxs_nan][nuclei_meas]
-    print('Classifying residues with CSs: ', nuclei_meas)
+    print('Entries with CSs values', nuclei_meas)
 
     # Classify residues with all NaN values
     if np.all(i):
@@ -162,27 +158,25 @@ for i in combs_nan:
 
     # Classify residues that could be GLY or PRO
     elif {"HB", "CB", "HN"}.isdisjoint(nuclei_meas) and all(x in AATs_unique for x in {'GLY', 'PRO'}):
-        train_set_aux = train_set[nuclei_meas]
-        idxs = train_set_aux.isnull().any(axis=1)
-        train_set_aux = train_set_aux[~idxs]
-        labels = classes[~idxs]
+        idxs = train_set[nuclei_meas].isnull().any(axis=1)
+        train_set_aux = train_set[~idxs][nuclei_meas].copy()
+        labels = classes[~idxs].copy()
 
-        Mdl_clone = clone(Mdl)
-        Mdl_clone.fit(train_set_aux, labels)
-        probs[idxs_nan, :] = Mdl_clone.predict_proba(test_missing_comb)
+        clf_clone = clone(LDA_clf)
+        clf_clone.fit(train_set_aux, labels)
+        probs[idxs_nan, :] = clf_clone.predict_proba(test_missing_comb)
 
     # Classify residues that could be GLY
     elif {"HB", "CB"}.isdisjoint(set(nuclei_meas)) and 'GLY' in AATs_unique:
-        train_set_aux = train_set[train_set["amino"] != 'PRO']
-        labels = classes[classes != 'PRO']
-        train_set_aux = train_set_aux[nuclei_meas]
+        train_set_aux = train_set[train_set["amino"] != 'PRO'][nuclei_meas].copy()
+        labels = classes[classes != 'PRO'].copy()
         idxs = train_set_aux.isnull().any(axis=1)
         train_set_aux = train_set_aux[~idxs]
         labels = labels[~idxs]
 
-        Mdl_clone = clone(Mdl)
-        Mdl_clone.fit(train_set_aux, labels)
-        probs_aux = Mdl_clone.predict_proba(test_missing_comb)
+        clf_clone = clone(LDA_clf)
+        clf_clone.fit(train_set_aux, labels)
+        probs_aux = clf_clone.predict_proba(test_missing_comb)
         if 'PRO' in AATs_unique:
             probs[idxs_nan, :] = np.c_[probs_aux[:, :P_idx], np.zeros((idxs_nan.sum(), 1)), probs_aux[:, P_idx:]]
         else:
@@ -190,16 +184,15 @@ for i in combs_nan:
 
     # Classify residues that could be PRO
     elif {"HN"}.isdisjoint(set(nuclei_meas)) and 'PRO' in AATs_unique:
-        train_set_aux = train_set[train_set["amino"] != 'GLY']
-        labels = classes[classes != 'GLY']
-        train_set_aux = train_set_aux[nuclei_meas]
+        train_set_aux = train_set[train_set["amino"] != 'GLY'][nuclei_meas].copy()
+        labels = classes[classes != 'GLY'].copy()
         idxs = train_set_aux.isnull().any(axis=1)
         train_set_aux = train_set_aux[~idxs]
         labels = labels[~idxs]
 
-        Mdl_clone = clone(Mdl)
-        Mdl_clone.fit(train_set_aux, labels)
-        probs_aux = Mdl_clone.predict_proba(test_missing_comb)
+        clf_clone = clone(LDA_clf)
+        clf_clone.fit(train_set_aux, labels)
+        probs_aux = clf_clone.predict_proba(test_missing_comb)
         if 'GLY' in AATs_unique:
             probs[idxs_nan, :] = np.c_[probs_aux[:, :G_idx], np.zeros((idxs_nan.sum(), 1)), probs_aux[:, G_idx:]]
         else:
@@ -207,16 +200,15 @@ for i in combs_nan:
 
     # Classify other residues
     else:
-        train_set_aux = train_set[np.logical_or(train_set["amino"] != 'PRO', train_set["amino"] != 'GLY')]
-        labels = classes[np.logical_or(classes != 'PRO', classes != 'GLY')]
-        train_set_aux = train_set_aux[nuclei_meas]
+        train_set_aux = train_set.query('amino!="PRO" or amino!="GLY"')[nuclei_meas].copy()
+        labels = classes[np.logical_or(classes != 'PRO', classes != 'GLY')].copy()
         idxs = train_set_aux.isnull().any(axis=1)
         train_set_aux = train_set_aux[~idxs]
         labels = labels[~idxs]
 
-        Mdl_clone = clone(Mdl)
-        Mdl_clone.fit(train_set_aux, labels)
-        probs_aux = Mdl_clone.predict_proba(test_missing_comb)
+        clf_clone = clone(LDA_clf)
+        clf_clone.fit(train_set_aux, labels)
+        probs_aux = clf_clone.predict_proba(test_missing_comb)
         if all(x in AATs_unique for x in {'GLY', 'PRO'}):
             probs[idxs_nan, :] = np.c_[probs_aux[:, :G_idx], np.zeros((idxs_nan.sum(), 1)),
             probs_aux[:, G_idx:P_idx - 1], np.zeros((idxs_nan.sum(), 1)), probs_aux[:, P_idx - 1:]]
@@ -227,22 +219,18 @@ for i in combs_nan:
         else:
             probs[idxs_nan, :] = probs_aux
 
-# Set threshold of probabilities (for more clear results)
-for i in combs_nan:
-    idxs_nan = np.all(test_nan == i, axis=1)
-    nuclei_meas = list(compress(nuclei, ~i))
-    test_missing_comb = test_set[idxs_nan][nuclei_meas]
+    # Set probabilities threshold (for more clear results)
     if {'CB'}.issubset(test_missing_comb):
-        probs_aux = probs[idxs_nan, :]
+        probs_aux = probs[idxs_nan]
         probs_aux[probs_aux < 0.05] = 0
-        probs[idxs_nan, :] = probs_aux
+        probs[idxs_nan] = probs_aux
     else:
-        probs_aux = probs[idxs_nan, :]
+        probs_aux = probs[idxs_nan]
         probs_aux[probs_aux < 0.1] = 0
-        probs[idxs_nan, :] = probs_aux
+        probs[idxs_nan] = probs_aux
 
 # Write probabilities matrix to excel file
-df = pd.DataFrame(probs, index=SSN, columns=AATs_unique)
+df = pd.DataFrame(probs, index=test_data.index, columns=AATs_unique)
 df.to_excel('Probabilities.xlsx')
 
 # ========= Discard combinations not present in protein sequence ========== #
@@ -435,7 +423,7 @@ h = sns.relplot(x="Label", y="Residue", hue="Label", size="Probability",
 h.ax.margins(x=0.05, y=0.02)
 h.despine(top=False, right=False)
 plt.ylabel("Spin system", size=20)
-plt.yticks(y_pos, SSN, fontsize=8)
+plt.yticks(y_pos, test_data.index, fontsize=8)
 plt.xlabel("LDA classification", size=20)
 plt.xticks(x_pos, x_labels, fontsize=10, rotation=60)
 plt.grid(axis='x', color='k', linestyle='-', linewidth=0.2)
