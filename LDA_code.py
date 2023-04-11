@@ -147,7 +147,6 @@ for i in combs_nan:
     idxs_nan = np.all(test_nan == i, axis=1)
     nuclei_meas = list(compress(nuclei, ~i))
     test_missing_comb = test_set[idxs_nan][nuclei_meas]
-    print('Entries with CSs values', nuclei_meas)
 
     # Classify residues with all NaN values
     if np.all(i):
