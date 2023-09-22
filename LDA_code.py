@@ -13,7 +13,8 @@ import seaborn as sns
 import colorcet as cc
 
 # Read test data
-test_data = pd.read_excel(sys.argv[1], engine='openpyxl', index_col='SSN')
+# test_data = pd.read_excel(sys.argv[1], engine='openpyxl', index_col='SSN')
+test_data = pd.read_excel(sys.argv[1], engine='openpyxl')
 
 # Read fasta file
 with open(sys.argv[2], 'r') as f:
@@ -102,9 +103,9 @@ AATs_unique = list(set([AAT_dict[x] for x in set(fasta)]))
 AATs_unique.sort()
 
 # Test data
-# SSN = test_data.iloc[:len(test_data), 0]
-# test_set = test_data.drop(['SSN'], axis=1)
-test_set = test_data.copy()
+SSN = test_data.iloc[:len(test_data), 0]
+test_set = test_data.drop(['SSN'], axis=1)
+#test_set = test_data.copy()
 nuclei = test_set.columns.tolist()
 
 # Sort training data
@@ -372,7 +373,7 @@ if sys.argv[-1] == 'chains.txt':
         column_width = max(chains_probs[column].astype(str).map(len).max(), len(column))
         col_idx = chains_probs.columns.get_loc(column)
         writer.sheets['Sheet1'].set_column(col_idx, col_idx, column_width)
-    writer.save()
+    writer.close()
 
 # ================================= Plot ================================== #
 
